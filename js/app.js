@@ -2,7 +2,6 @@
   "use strict";
 
   var STORAGE_KEY = "pulso_v01_data";
-  var SESSION_KEY = "pulso_v01_session";
 
   var seed = {
     warehouses: [
@@ -59,17 +58,15 @@
     return "ING-" + String(max + 1).padStart(6, "0");
   }
 
-  function setSession(user) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ user: user, at: new Date().toISOString() }));
-  }
-
-  function clearSession() {
-    sessionStorage.removeItem(SESSION_KEY);
-  }
+  var currentProfile = null;
 
   function showApp() {
     byId("loginView").classList.add("hidden");
     byId("appView").classList.remove("hidden");
+    if (currentProfile) {
+      byId("logoutButton").textContent = (currentProfile.display_name || "P").charAt(0).toUpperCase();
+      byId("logoutButton").title = (currentProfile.display_name || "Usuario") + " · " + currentProfile.role + " · Cerrar sesión";
+    }
     renderAll();
   }
 
@@ -78,25 +75,73 @@
     byId("loginView").classList.remove("hidden");
   }
 
-  function initSession() {
+  async function initSession() {
     var remembered = localStorage.getItem("pulso_remember_user");
     if (remembered) {
       byId("loginUser").value = remembered;
       byId("rememberMe").checked = true;
     }
-    if (sessionStorage.getItem(SESSION_KEY)) showApp();
+
+    if (!window.PULSO_BACKEND || !window.PULSO_BACKEND.ready) {
+      showLogin();
+      toast("No fue posible inicializar la conexión segura con Supabase.");
+      return;
+    }
+
+    try {
+      var session = await window.PULSO_BACKEND.getSession();
+      if (session && session.user) {
+        currentProfile = await window.PULSO_BACKEND.ensureProfile(session.user);
+        if (!currentProfile.active) {
+          await window.PULSO_BACKEND.signOut();
+          currentProfile = null;
+          showLogin();
+          toast("Tu usuario está inactivo en PULSO.");
+          return;
+        }
+        showApp();
+      } else {
+        showLogin();
+      }
+    } catch (error) {
+      console.error(error);
+      showLogin();
+      toast("No fue posible validar la sesión.");
+    }
   }
 
-  byId("loginForm").addEventListener("submit", function (event) {
+  byId("loginForm").addEventListener("submit", async function (event) {
     event.preventDefault();
     var user = byId("loginUser").value.trim();
     var password = byId("loginPassword").value;
+    var submit = event.currentTarget.querySelector('button[type="submit"]');
     if (!user || !password) return;
+
     if (byId("rememberMe").checked) localStorage.setItem("pulso_remember_user", user);
     else localStorage.removeItem("pulso_remember_user");
-    setSession(user);
-    showApp();
-    toast("PULSO está operando en modo local hasta conectar Supabase.");
+
+    submit.disabled = true;
+    submit.textContent = "Validando acceso...";
+
+    try {
+      var auth = await window.PULSO_BACKEND.signIn(user, password);
+      currentProfile = await window.PULSO_BACKEND.ensureProfile(auth.user);
+      if (!currentProfile.active) {
+        await window.PULSO_BACKEND.signOut();
+        currentProfile = null;
+        throw new Error("Usuario inactivo");
+      }
+      showApp();
+      toast("Acceso confirmado · " + currentProfile.role);
+    } catch (error) {
+      console.error(error);
+      toast(error && error.message === "Usuario inactivo"
+        ? "Tu usuario está inactivo en PULSO."
+        : "Correo o contraseña incorrectos.");
+    } finally {
+      submit.disabled = false;
+      submit.innerHTML = 'Ingresar <span>→</span>';
+    }
   });
 
   byId("togglePassword").addEventListener("click", function () {
@@ -105,11 +150,16 @@
   });
 
   byId("forgotPassword").addEventListener("click", function () {
-    toast("La recuperación de contraseña se activará con Supabase Auth.");
+    toast("La recuperación de contraseña se habilitará en la siguiente iteración.");
   });
 
-  byId("logoutButton").addEventListener("click", function () {
-    clearSession();
+  byId("logoutButton").addEventListener("click", async function () {
+    try {
+      await window.PULSO_BACKEND.signOut();
+    } catch (error) {
+      console.error(error);
+    }
+    currentProfile = null;
     showLogin();
   });
 
