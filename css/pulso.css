@@ -834,3 +834,108 @@ tbody tr:hover { background: #FBFCFB; }
     height: 42px;
   }
 }
+
+
+/* =========================================================
+   PULSO · Branding transparente v0.3
+   El logo PNG se muestra sin contenedores, fondos ni marcos.
+   ========================================================= */
+
+.login-logo {
+  width: min(330px, 40vw);
+  max-height: 112px;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,.28));
+}
+
+.card-brand {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 20px;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.card-brand .card-icon,
+.card-icon {
+  display: none !important;
+}
+
+.card-logo {
+  width: 192px;
+  max-width: 100%;
+  height: auto;
+  max-height: 72px;
+  object-fit: contain;
+  object-position: left center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,.22));
+}
+
+.sidebar-brand {
+  min-height: 78px;
+  padding: 4px 9px 26px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  background: transparent;
+}
+
+.sidebar-brand img {
+  width: 188px;
+  max-width: 100%;
+  max-height: 62px;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  filter: drop-shadow(0 7px 16px rgba(0,0,0,.22));
+}
+
+@media (max-width: 820px) {
+  .login-logo {
+    width: min(270px, 72vw);
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-logo {
+    width: 220px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .card-logo {
+    width: 165px;
+    height: auto;
+    max-height: 58px;
+  }
+}
