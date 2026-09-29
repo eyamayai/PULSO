@@ -50,7 +50,7 @@
         <label for="loginUser">Usuario</label>
         <div class="field">
           <span class="field-icon">◉</span>
-          <input id="loginUser" autocomplete="username" placeholder="Ingresa tu usuario" required>
+          <input id="loginUser" autocomplete="username" placeholder="correo@empresa.com" required>
         </div>
 
         <label for="loginPassword">Contraseña</label>
@@ -66,7 +66,7 @@
         </div>
 
         <button class="primary-button login-button" type="submit">Ingresar <span>→</span></button>
-        <p class="login-note" id="loginNote">La autenticación con Supabase se activará al conectar el backend.</p>
+        <p class="login-note" id="loginNote">Acceso protegido por Supabase Auth.</p>
       </form>
     </div>
   </section>
@@ -95,7 +95,7 @@
           <span class="workspace">Proyecto MinTIC · Logística</span>
         </div>
         <div class="topbar-actions">
-          <span class="mode-chip">Modo local</span>
+          <span class="mode-chip" id="modeChip">Supabase</span>
           <button class="avatar" id="logoutButton" title="Cerrar sesión">P</button>
         </div>
       </header>
@@ -246,7 +246,9 @@
     </form>
   </dialog>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/config.js"></script>
+  <script src="js/backend.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
