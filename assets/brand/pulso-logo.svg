@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 130" role="img" aria-labelledby="t d">
+<title id="t">PULSO</title><desc id="d">PULSO, El pulso de tu operación</desc>
+<defs>
+  <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#13A66B"/><stop offset="1" stop-color="#0B5D46"/></linearGradient>
+  <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F39C12"/><stop offset="1" stop-color="#FFD36A"/></linearGradient>
+</defs>
+<g transform="translate(3 2) scale(.92)">
+  <path d="M30 103V26c0-7 5-12 12-12h28c25 0 43 14 43 36 0 16-9 27-23 32-7 3-15 4-24 4H54v17c0 7-5 12-12 12S30 110 30 103Z" fill="url(#g1)"/>
+  <path d="M54 36v26h14c13 0 21-4 21-13 0-8-7-13-19-13H54Z" fill="#13251E"/>
+  <path d="M17 74h21l9-18 12 33 13-25 10 10h28" fill="none" stroke="url(#g2)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#F39C12" stroke="#fff" stroke-width="4"><circle cx="17" cy="74" r="7"/><circle cx="59" cy="89" r="7"/><circle cx="110" cy="74" r="7"/></g>
+</g>
+<text x="132" y="76" font-family="Poppins,Arial,sans-serif" font-weight="700" font-size="69" fill="#F5F1E8" letter-spacing="-2">PULS</text>
+<circle cx="438" cy="52" r="25" fill="#F39C12"/>
+<text x="132" y="108" font-family="Inter,Arial,sans-serif" font-weight="500" font-size="18" fill="#AFC2B9">El pulso de tu operación.</text>
+</svg>
