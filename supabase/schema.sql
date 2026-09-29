@@ -285,3 +285,24 @@ set name = excluded.name,
     organization_id = excluded.organization_id,
     location_id = excluded.location_id,
     warehouse_type = excluded.warehouse_type;
+
+
+-- Permisos explícitos para Data API.
+-- La creación automática de privilegios está desactivada en el proyecto PULSO.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on
+  public.profiles,
+  public.organizations,
+  public.sap_centers,
+  public.locations,
+  public.sap_warehouses,
+  public.materials,
+  public.equipment,
+  public.receipts,
+  public.receipt_items,
+  public.movements,
+  public.movement_items
+to authenticated;
+
+grant select on public.audit_log to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
