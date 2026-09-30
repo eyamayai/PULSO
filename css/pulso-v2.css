@@ -131,14 +131,15 @@ h1,h2,h3,.workspace,.kpi-card strong{font-family:Poppins,Inter,sans-serif}
   box-shadow:0 28px 80px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.045),0 0 44px rgba(19,166,107,.08);
   backdrop-filter:blur(22px) saturate(1.12);
 }
-.login-lockup{display:flex;align-items:center;gap:12px;margin-bottom:clamp(18px,2.2vh,28px)}
-.login-lockup-icon{width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,0,0,.18))}
-.login-lockup-copy{min-width:0}
-.login-lockup-name{
-  font-family:Poppins,Inter,sans-serif;font-size:clamp(32px,2.6vw,44px);line-height:.92;font-weight:700;letter-spacing:-.04em;color:#F4F7F5
+.login-lockup{display:flex;align-items:center;margin-bottom:clamp(18px,2.2vh,28px)}
+.login-lockup-logo{
+  display:block;
+  width:clamp(205px,17vw,286px);
+  max-width:100%;
+  height:auto;
+  object-fit:contain;
+  object-position:left center;
 }
-.login-lockup-name::after{content:"";display:inline-block;width:12px;height:12px;margin-left:6px;border-radius:50%;background:var(--orange);vertical-align:.12em}
-.login-lockup-tagline{margin-top:3px;font-size:10px;font-weight:600;color:rgba(255,255,255,.82)}
 .login-card h2{margin:0 0 6px;font-size:clamp(19px,1.45vw,24px);letter-spacing:-.025em;color:#F7FAF8}
 .login-subtitle{margin:0 0 clamp(16px,2vh,24px);color:rgba(220,232,227,.61);font-size:clamp(11.5px,.85vw,14px);line-height:1.4}
 
@@ -189,8 +190,8 @@ h1,h2,h3,.workspace,.kpi-card strong{font-family:Poppins,Inter,sans-serif}
   .route-valledupar{top:47%;right:11%}
   .login-right{padding-top:12px;padding-bottom:12px}
   .login-card{width:min(100%,450px);padding:22px 32px;border-radius:20px}
-  .login-lockup{margin-bottom:14px}.login-lockup-icon{width:50px;height:50px}
-  .login-lockup-name{font-size:34px}.login-lockup-tagline{font-size:9px}
+  .login-lockup{margin-bottom:14px}
+  .login-lockup-logo{width:210px}
   .login-card h2{font-size:18px}
   .login-subtitle{margin-bottom:13px;font-size:11px}
   .login-field input{height:42px}.login-options{margin-bottom:11px}
@@ -222,8 +223,7 @@ h1,h2,h3,.workspace,.kpi-card strong{font-family:Poppins,Inter,sans-serif}
   .hero-copy h1{font-size:40px}
   .login-right{min-height:71dvh}
   .login-card{padding:22px 18px;border-radius:18px}
-  .login-lockup-icon{width:48px;height:48px}
-  .login-lockup-name{font-size:30px}
+  .login-lockup-logo{width:195px}
 }
 
 /* ========================= APP SHELL ========================= */
@@ -233,7 +233,7 @@ h1,h2,h3,.workspace,.kpi-card strong{font-family:Poppins,Inter,sans-serif}
   border-right:1px solid rgba(124,190,166,.10);display:flex;flex-direction:column;z-index:20
 }
 .sidebar-brand{padding:0 8px 22px;border-bottom:1px solid rgba(255,255,255,.07)}
-.sidebar-brand img{width:176px;max-height:56px;object-fit:contain;object-position:left center;filter:drop-shadow(0 7px 16px rgba(0,0,0,.20))}
+.sidebar-brand img{width:176px;max-height:56px;object-fit:contain;object-position:left center}
 .nav{padding-top:18px;display:grid;gap:6px}
 .nav-item{
   width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:0;border-radius:10px;background:transparent;color:rgba(235,243,239,.64);
