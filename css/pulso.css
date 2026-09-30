@@ -1953,3 +1953,21 @@ tbody tr:hover { background: #FBFCFB; }
     top: 45.8% !important;
   }
 }
+
+
+/* =========================================================
+   PULSO · Reubicación precisa Riohacha v0.7
+   Punto de partida horizontal: esquina superior derecha del rótulo actual.
+   Desplazamiento vertical: dos alturas completas hacia arriba.
+   ========================================================= */
+@media (min-width: 861px) and (max-width: 1500px) and (max-height: 850px) {
+  .chip-riohacha {
+    transform: translate(100%, -200%) !important;
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1250px) and (max-height: 760px) {
+  .chip-riohacha {
+    transform: translate(100%, -200%) !important;
+  }
+}
