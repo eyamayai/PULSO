@@ -21,16 +21,23 @@
     <div class="login-atmosphere" aria-hidden="true"></div>
 
     <div class="login-brand">
-      <img src="assets/brand/pulso-logo.png" onerror="this.onerror=null;this.src='assets/brand/pulso-logo.svg'" alt="PULSO" class="login-logo">
       <div class="hero-copy">
-        <span class="eyebrow">OPERACIÓN LOGÍSTICA</span>
-        <h1>El pulso<br><strong>de tu operación.</strong></h1>
-        <p>Visibilidad, trazabilidad y control para conectar bodegas, materiales y movimientos en una sola plataforma.</p>
-        <div class="hero-features">
-          <span><b></b>Trazabilidad por serial</span>
-          <span><b></b>Control multi-bodega</span>
-          <span><b></b>Historia operativa</span>
-        </div>
+        <h1>El pulso<br><strong>de tu operación<span class="hero-dot">.</span></strong></h1>
+        <p>Una solución de logística que conecta,<br>optimiza y mantiene en movimiento<br>tu operación.</p>
+      </div>
+
+      <div class="location-chip chip-riohacha" aria-hidden="true">
+        <span class="location-pin">●</span>
+        <div><strong>Riohacha</strong><small><i></i> En tránsito</small></div>
+      </div>
+
+      <div class="location-chip chip-valledupar" aria-hidden="true">
+        <span class="location-pin orange">●</span>
+        <div><strong>Valledupar</strong><small><i></i> Próxima entrega</small></div>
+      </div>
+
+      <div class="login-footer-brand">
+        <strong>PULSO</strong><span></span><small>Sistema de identidad visual</small>
       </div>
     </div>
 
@@ -38,21 +45,21 @@
       <form id="loginForm" class="login-card">
         <div class="card-brand">
           <img src="assets/brand/pulso-logo.png" onerror="this.onerror=null;this.src='assets/brand/pulso-logo.svg'" alt="PULSO" class="card-logo">
+          <span>El pulso de tu operación.</span>
         </div>
+
         <h2>Acceso seguro a la operación</h2>
-        <p class="muted">Ingresa para gestionar la operación logística.</p>
+        <p class="muted">Conéctate para gestionar tus envíos, monitorear<br>tu flota y mantener tu operación en movimiento.</p>
 
-        <label for="loginUser">Usuario</label>
         <div class="field">
-          <span class="field-icon">◉</span>
-          <input id="loginUser" autocomplete="username" placeholder="correo@empresa.com" required>
+          <span class="field-icon">●</span>
+          <input id="loginUser" autocomplete="username" placeholder="Usuario" required>
         </div>
 
-        <label for="loginPassword">Contraseña</label>
         <div class="field">
           <span class="field-icon">◆</span>
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Ingresa tu contraseña" required>
-          <button type="button" class="icon-button" id="togglePassword" aria-label="Mostrar contraseña">◌</button>
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Contraseña" required>
+          <button type="button" class="icon-button" id="togglePassword" aria-label="Mostrar contraseña">◉</button>
         </div>
 
         <div class="login-options">
@@ -61,8 +68,19 @@
         </div>
 
         <button class="primary-button login-button" type="submit">Ingresar <span>→</span></button>
-        <p class="login-note" id="loginNote">Acceso protegido por Supabase Auth.</p>
+
+        <div class="login-separator"><span></span><small>o continúa con</small><span></span></div>
+        <button type="button" class="corporate-button" id="corporateAccess">
+          <span class="corp-icon">▦</span>
+          <span>Acceso corporativo</span>
+          <span class="corp-arrow">›</span>
+        </button>
       </form>
+    </div>
+
+    <div class="login-footer-right">
+      <span></span>
+      <small><strong>Conectando</strong> hoy,<br>un mañana en movimiento.</small>
     </div>
   </section>
 
