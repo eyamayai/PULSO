@@ -148,22 +148,171 @@
 
         <section class="page" id="page-ingresos">
           <div class="page-heading split">
-            <div><span class="eyebrow">MOVIMIENTOS</span><h2>Ingresos</h2><p>Recepciones nuevas, reingresos y reconstrucción histórica.</p></div>
-            <button class="primary-button" id="newIngresoButton">+ Nuevo ingreso</button>
+            <div>
+              <span class="eyebrow">RECEPCIÓN DE EQUIPOS</span>
+              <h2>Ingresos</h2>
+              <p>Cabecera controlada, detalle masivo por Excel y validación antes de registrar.</p>
+            </div>
+            <button class="secondary-button" id="newIngresoButton">Limpiar ingreso</button>
           </div>
-          <div class="panel">
-            <div class="table-toolbar">
-              <input id="ingresosSearch" class="search-input" placeholder="Buscar por serial, SAP, origen o documento...">
-              <select id="ingresosFilter"><option value="">Todos</option><option value="OPERATIVO">Operativos</option><option value="HISTORICO">Históricos</option></select>
+
+          <div class="ingreso-flow">
+            <div class="ingreso-stepper" aria-label="Flujo de ingreso">
+              <div class="flow-step active" data-flow-step="1"><span>1</span><div><strong>Cabecera</strong><small>Datos del ingreso</small></div></div>
+              <div class="flow-line"></div>
+              <div class="flow-step" data-flow-step="2"><span>2</span><div><strong>Detalle Excel</strong><small>Serializados y cantidades</small></div></div>
+              <div class="flow-line"></div>
+              <div class="flow-step" data-flow-step="3"><span>3</span><div><strong>Validación</strong><small>Conflictos y advertencias</small></div></div>
+              <div class="flow-line"></div>
+              <div class="flow-step" data-flow-step="4"><span>4</span><div><strong>Procesar</strong><small>Registrar en PULSO</small></div></div>
+            </div>
+
+            <form id="ingresoWorkspaceForm" class="panel ingreso-header-panel">
+              <div class="panel-heading split">
+                <div>
+                  <h3>Información general del ingreso</h3>
+                  <p>Estos datos aplican a todas las líneas contenidas en el archivo.</p>
+                </div>
+                <span class="header-status" id="ingresoHeaderStatus">Pendiente</span>
+              </div>
+
+              <div class="ingreso-form-grid">
+                <div>
+                  <label>Fecha efectiva *</label>
+                  <input type="date" name="effectiveDate" required>
+                </div>
+                <div>
+                  <label>Origen del registro *</label>
+                  <select name="recordOrigin" required>
+                    <option value="OPERATIVO">Operativo PULSO</option>
+                    <option value="HISTORICO">Histórico</option>
+                    <option value="IMPORTACION">Importación</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Organización / origen</label>
+                  <input name="source" list="sourceOrganizations" placeholder="Ej. Logytech, Almaviva, aliado...">
+                  <datalist id="sourceOrganizations"></datalist>
+                </div>
+                <div>
+                  <label>Almacén SAP origen</label>
+                  <input name="sourceWarehouse" list="sourceWarehouses" placeholder="Opcional">
+                  <datalist id="sourceWarehouses"></datalist>
+                </div>
+                <div>
+                  <label>Ubicación destino *</label>
+                  <select name="destination" id="ingresoDestination" required>
+                    <option value="">Selecciona...</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Almacén SAP destino *</label>
+                  <select name="destinationWarehouseId" id="ingresoDestinationWarehouse" required>
+                    <option value="">Selecciona ubicación primero...</option>
+                  </select>
+                </div>
+                <div>
+                  <label>N.º despacho / documento origen</label>
+                  <input name="sourceDocument" placeholder="Opcional para históricos o traslados">
+                </div>
+                <div>
+                  <label>Estado de información</label>
+                  <select name="infoStatus">
+                    <option value="COMPLETO">Completo</option>
+                    <option value="INCOMPLETO">Incompleto</option>
+                    <option value="REVISION">Pendiente de revisión</option>
+                  </select>
+                </div>
+                <div class="ingreso-notes-field">
+                  <label>Observaciones</label>
+                  <textarea name="notes" rows="2" placeholder="Novedades o contexto de la recepción..."></textarea>
+                </div>
+              </div>
+            </form>
+
+            <section class="panel import-panel">
+              <div class="panel-heading split">
+                <div>
+                  <h3>Detalle del ingreso</h3>
+                  <p>Descarga la plantilla, diligencia los equipos y vuelve a cargarla.</p>
+                </div>
+                <div class="import-actions">
+                  <button class="secondary-button" type="button" id="downloadIngresoTemplate">⇩ Exportar plantilla</button>
+                  <button class="primary-button" type="button" id="uploadIngresoButton">⇧ Recibir Excel</button>
+                  <input type="file" id="ingresoFileInput" accept=".xlsx,.xls" hidden>
+                </div>
+              </div>
+
+              <div class="import-dropzone" id="ingresoDropzone">
+                <div class="drop-icon">XL</div>
+                <div>
+                  <strong id="ingresoFileName">Aún no has cargado un archivo</strong>
+                  <p id="ingresoFileMeta">La plantilla contiene las hojas <b>Serializados</b> y <b>No Serializados</b>.</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel validation-panel hidden" id="ingresoValidationPanel">
+              <div class="panel-heading split">
+                <div>
+                  <h3>Vista previa y validación</h3>
+                  <p>PULSO no registra nada hasta que presiones <b>Procesar ingreso</b>.</p>
+                </div>
+                <button class="ghost-button hidden" type="button" id="exportIngresoIssues">Exportar inconsistencias</button>
+              </div>
+
+              <div class="validation-summary">
+                <div class="validation-card neutral"><span>Total</span><strong id="validationTotal">0</strong><small>líneas analizadas</small></div>
+                <div class="validation-card ok"><span>Correctos</span><strong id="validationOk">0</strong><small>sin novedades</small></div>
+                <div class="validation-card warning"><span>Advertencias</span><strong id="validationWarnings">0</strong><small>requieren revisión</small></div>
+                <div class="validation-card error"><span>Errores</span><strong id="validationErrors">0</strong><small>bloquean el ingreso</small></div>
+              </div>
+
+              <div class="preview-tabs" id="previewTabs">
+                <button type="button" class="preview-tab active" data-preview-filter="ALL">Todos</button>
+                <button type="button" class="preview-tab" data-preview-filter="OK">Correctos</button>
+                <button type="button" class="preview-tab" data-preview-filter="WARNING">Advertencias</button>
+                <button type="button" class="preview-tab" data-preview-filter="ERROR">Errores</button>
+              </div>
+
+              <div class="table-wrap preview-table-wrap">
+                <table class="preview-table">
+                  <thead>
+                    <tr>
+                      <th>Hoja</th><th>Fila</th><th>Código SAP</th><th>Descripción</th><th>Serial</th>
+                      <th>Cantidad</th><th>Tipo recepción</th><th>Lote</th><th>Estado</th><th>Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ingresoPreviewTable"></tbody>
+                </table>
+              </div>
+
+              <div class="process-bar">
+                <div>
+                  <strong id="processStatusTitle">Carga una plantilla para comenzar</strong>
+                  <small id="processStatusText">PULSO validará estructura, materiales, seriales y cantidades.</small>
+                </div>
+                <button class="primary-button process-button" type="button" id="processIngresoButton" disabled>Procesar ingreso</button>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel ingresos-history-panel">
+            <div class="panel-heading split">
+              <div><h3>Ingresos registrados</h3><p>Últimas recepciones guardadas en PULSO.</p></div>
+              <div class="table-toolbar compact">
+                <input id="ingresosSearch" class="search-input" placeholder="Buscar...">
+                <select id="ingresosFilter"><option value="">Todos</option><option value="OPERATIVO">Operativos</option><option value="HISTORICO">Históricos</option><option value="IMPORTACION">Importados</option></select>
+              </div>
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Ingreso</th><th>Fecha efectiva</th><th>Tipo</th><th>Destino</th><th>Origen</th><th>Documento</th><th>Equipos</th><th>Estado</th></tr></thead>
+                <thead><tr><th>Ingreso</th><th>Fecha efectiva</th><th>Tipo</th><th>Destino</th><th>Origen</th><th>Documento</th><th>Líneas</th><th>Estado</th></tr></thead>
                 <tbody id="ingresosTable"></tbody>
               </table>
             </div>
             <div id="ingresosEmpty" class="empty-state">No hay ingresos registrados todavía.</div>
-          </div>
+          </section>
         </section>
 
         <section class="page" id="page-trazabilidad">
@@ -215,36 +364,6 @@
     </main>
   </section>
 
-  <dialog id="ingresoDialog" class="dialog">
-    <form method="dialog" id="ingresoForm">
-      <div class="dialog-heading">
-        <div><span class="eyebrow">NUEVO MOVIMIENTO</span><h2>Registrar ingreso</h2></div>
-        <button class="icon-button close-dialog" type="button" data-close="ingresoDialog">✕</button>
-      </div>
-
-      <div class="form-grid">
-        <div><label>Fecha efectiva</label><input type="date" name="effectiveDate" required></div>
-        <div><label>Origen del registro</label><select name="recordOrigin" required><option value="OPERATIVO">Operativo PULSO</option><option value="HISTORICO">Histórico</option><option value="IMPORTACION">Importación</option></select></div>
-        <div><label>Organización / origen</label><input name="source" placeholder="Ej. Logytech, Almaviva, aliado..."></div>
-        <div><label>Almacén SAP origen</label><input name="sourceWarehouse" placeholder="Opcional"></div>
-        <div><label>Ubicación destino</label><select name="destination" required><option value="">Selecciona...</option><option>Riohacha</option><option>Valledupar</option><option>Aguachica</option><option>San Andrés</option></select></div>
-        <div><label>Almacén SAP destino</label><select name="destinationWarehouse" id="destinationWarehouse" required></select></div>
-        <div><label>N.º despacho / documento origen</label><input name="sourceDocument" placeholder="Puede quedar pendiente en históricos"></div>
-        <div><label>Estado de información</label><select name="infoStatus"><option value="COMPLETO">Completo</option><option value="INCOMPLETO">Incompleto</option><option value="REVISION">Pendiente de revisión</option></select></div>
-      </div>
-
-      <div class="dialog-section-heading"><div><h3>Detalle recibido</h3><p>Primera versión: agrega equipos serializados o cantidades no serializadas.</p></div><button type="button" class="secondary-button" id="addItemButton">+ Agregar línea</button></div>
-      <div id="itemsContainer" class="items-container"></div>
-
-      <div><label>Observaciones</label><textarea name="notes" rows="3" placeholder="Notas sobre esta recepción..."></textarea></div>
-
-      <div class="dialog-actions">
-        <button type="button" class="ghost-button close-dialog" data-close="ingresoDialog">Cancelar</button>
-        <button type="submit" class="primary-button">Guardar ingreso</button>
-      </div>
-    </form>
-  </dialog>
-
   <dialog id="warehouseDialog" class="dialog small">
     <form method="dialog" id="warehouseForm">
       <input type="hidden" name="id">
@@ -263,8 +382,9 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/backend.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app-v2.js"></script>
 </body>
 </html>
