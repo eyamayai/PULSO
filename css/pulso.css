@@ -1971,3 +1971,157 @@ tbody tr:hover { background: #FBFCFB; }
     transform: translate(100%, -200%) !important;
   }
 }
+
+
+/* =========================================================
+   PULSO · Homologación escritorio 22" v0.8
+   Replica en pantallas grandes la composición afinada en 14".
+   ========================================================= */
+@media (min-width: 1501px) {
+  .login-view {
+    grid-template-columns: 1.05fr .95fr !important;
+  }
+
+  .hero-copy {
+    left: 5.2vw !important;
+    top: 11.5% !important;
+    width: min(720px, 46vw) !important;
+    max-width: 720px !important;
+  }
+
+  .hero-copy h1 {
+    max-width: 720px !important;
+    margin-bottom: 18px !important;
+    font-size: clamp(64px, 4.2vw, 76px) !important;
+    line-height: .94 !important;
+  }
+
+  .hero-copy p {
+    max-width: 520px !important;
+    font-size: clamp(17px, 1.05vw, 20px) !important;
+    line-height: 1.42 !important;
+  }
+
+  .login-panel-wrap {
+    padding: 28px 7.5vw 28px 24px !important;
+  }
+
+  .login-card {
+    width: min(100%, 470px) !important;
+    min-height: 0 !important;
+    padding: 28px 38px 26px !important;
+    border-radius: 23px !important;
+  }
+
+  .card-brand {
+    margin-bottom: 20px !important;
+  }
+
+  .card-logo {
+    width: 198px !important;
+  }
+
+  .card-brand > span {
+    margin-left: 91px !important;
+    margin-top: -9px !important;
+    font-size: 9.5px !important;
+  }
+
+  .login-card h2 {
+    margin-bottom: 6px !important;
+    font-size: 20px !important;
+  }
+
+  .login-card .muted {
+    margin-bottom: 17px !important;
+    font-size: 12px !important;
+    line-height: 1.38 !important;
+  }
+
+  .login-card .field {
+    margin-bottom: 9px !important;
+  }
+
+  .login-card .field input {
+    min-height: 46px !important;
+    padding-left: 43px !important;
+    padding-right: 43px !important;
+    border-radius: 11px !important;
+    font-size: 12.5px !important;
+  }
+
+  .login-options {
+    margin: 1px 0 14px !important;
+  }
+
+  .login-options .checkline,
+  .link-button {
+    font-size: 10px !important;
+  }
+
+  .login-options .checkline input {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .login-button {
+    min-height: 46px !important;
+    border-radius: 11px !important;
+    font-size: 12.5px !important;
+  }
+
+  .login-separator {
+    margin: 16px 0 13px !important;
+  }
+
+  .login-separator small {
+    font-size: 9px !important;
+  }
+
+  .corporate-button {
+    min-height: 41px !important;
+    font-size: 10.5px !important;
+    border-radius: 10px !important;
+  }
+
+  .location-chip {
+    min-width: 162px !important;
+    padding: 8px 11px !important;
+    gap: 8px !important;
+  }
+
+  .location-chip strong {
+    font-size: 11px !important;
+  }
+
+  .location-chip small {
+    font-size: 9px !important;
+  }
+
+  .location-chip .location-pin {
+    width: 23px !important;
+    height: 23px !important;
+  }
+
+  .chip-riohacha {
+    left: 48.5% !important;
+    top: 23.8% !important;
+    transform: none !important;
+  }
+
+  .chip-valledupar {
+    left: 45.5% !important;
+    top: 47.2% !important;
+    transform: none !important;
+  }
+
+  .login-footer-brand {
+    left: 2.8vw !important;
+    bottom: 3.1% !important;
+  }
+
+  .login-footer-right {
+    right: 4.2% !important;
+    bottom: 3.1% !important;
+  }
+}
