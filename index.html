@@ -12,68 +12,70 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/pulso.css">
+  <link rel="stylesheet" href="css/pulso-v2.css">
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <section id="loginView" class="login-view">
-    <div class="login-atmosphere" aria-hidden="true"></div>
-
-    <div class="login-brand">
+    <div class="login-left">
       <div class="hero-copy">
-        <h1>El pulso<br><strong>de tu operación<span class="hero-dot">.</span></strong></h1>
+        <h1>El pulso<br><strong>de tu operación<span>.</span></strong></h1>
         <p>Una solución de logística que conecta,<br>optimiza y mantiene en movimiento<br>tu operación.</p>
       </div>
 
-      <div class="location-chip chip-riohacha" aria-hidden="true">
-        <span class="location-pin">●</span>
-        <div><strong>Riohacha</strong><small><i></i> En tránsito</small></div>
+      <div class="route-label route-riohacha" aria-hidden="true">
+        <span class="route-pin teal"></span>
+        <div><strong>Riohacha</strong><small><i class="teal"></i>En tránsito</small></div>
       </div>
 
-      <div class="location-chip chip-valledupar" aria-hidden="true">
-        <span class="location-pin orange">●</span>
-        <div><strong>Valledupar</strong><small><i></i> Próxima entrega</small></div>
+      <div class="route-label route-valledupar" aria-hidden="true">
+        <span class="route-pin orange"></span>
+        <div><strong>Valledupar</strong><small><i class="orange"></i>Próxima entrega</small></div>
       </div>
 
-      <div class="login-footer-brand">
+      <div class="identity-footer">
         <strong>PULSO</strong><span></span><small>Sistema de identidad visual</small>
       </div>
     </div>
 
-    <div class="login-panel-wrap">
+    <div class="login-right">
       <form id="loginForm" class="login-card">
-        <div class="card-brand">
-          <img src="assets/brand/pulso-logo.png" onerror="this.onerror=null;this.src='assets/brand/pulso-logo.svg'" alt="PULSO" class="card-logo">
-          <span>El pulso de tu operación.</span>
+        <div class="login-lockup">
+          <img src="assets/brand/pulso-icon.png" alt="" class="login-lockup-icon">
+          <div class="login-lockup-copy">
+            <div class="login-lockup-name">PULSO</div>
+            <div class="login-lockup-tagline">El pulso de tu operación.</div>
+          </div>
         </div>
 
         <h2>Acceso seguro a la operación</h2>
-        <p class="muted">Conéctate para gestionar tus envíos, monitorear<br>tu flota y mantener tu operación en movimiento.</p>
+        <p class="login-subtitle">Conéctate para gestionar tus envíos, monitorear<br>tu flota y mantener tu operación en movimiento.</p>
 
-        <div class="field">
-          <span class="field-icon">●</span>
+        <div class="login-field">
+          <span class="login-field-icon">●</span>
           <input id="loginUser" autocomplete="username" placeholder="Usuario" required>
         </div>
 
-        <div class="field">
-          <span class="field-icon">◆</span>
+        <div class="login-field">
+          <span class="login-field-icon">◆</span>
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Contraseña" required>
-          <button type="button" class="icon-button" id="togglePassword" aria-label="Mostrar contraseña">◉</button>
+          <button type="button" class="password-toggle" id="togglePassword" aria-label="Mostrar contraseña">◉</button>
         </div>
 
         <div class="login-options">
-          <label class="checkline"><input type="checkbox" id="rememberMe"> Recordarme</label>
-          <button type="button" class="link-button" id="forgotPassword">¿Olvidaste tu contraseña?</button>
+          <label class="remember"><input type="checkbox" id="rememberMe"> Recordarme</label>
+          <button type="button" class="forgot-link" id="forgotPassword">¿Olvidaste tu contraseña?</button>
         </div>
 
-        <button class="primary-button login-button" type="submit">Ingresar <span>→</span></button>
+        <button class="login-submit" type="submit">Ingresar <span>→</span></button>
 
-        <div class="login-separator"><span></span><small>o continúa con</small><span></span></div>
-        <button type="button" class="corporate-button" id="corporateAccess">
-          <span class="corp-icon">▦</span>
+        <div class="login-divider"><span></span><small>o continúa con</small><span></span></div>
+
+        <button type="button" class="corporate-access" id="corporateAccess">
+          <span class="corporate-icon">▦</span>
           <span>Acceso corporativo</span>
-          <span class="corp-arrow">›</span>
+          <span class="corporate-arrow">›</span>
         </button>
       </form>
     </div>
