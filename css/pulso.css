@@ -1924,3 +1924,32 @@ tbody tr:hover { background: #FBFCFB; }
     top: 49.5% !important;
   }
 }
+
+
+/* =========================================================
+   PULSO · Microajuste rótulos ciudades v0.6
+   Se alejan del bloque principal y se alinean mejor con la ruta.
+   ========================================================= */
+@media (min-width: 861px) and (max-width: 1500px) and (max-height: 850px) {
+  .chip-riohacha {
+    left: 48.2% !important;
+    top: 24.8% !important;
+  }
+
+  .chip-valledupar {
+    left: 47.2% !important;
+    top: 46.8% !important;
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1250px) and (max-height: 760px) {
+  .chip-riohacha {
+    left: 46.8% !important;
+    top: 24.2% !important;
+  }
+
+  .chip-valledupar {
+    left: 46.2% !important;
+    top: 45.8% !important;
+  }
+}
