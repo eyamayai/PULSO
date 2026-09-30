@@ -306,3 +306,180 @@ to authenticated;
 
 grant select on public.audit_log to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
+
+
+-- RPC atómica para procesar ingresos masivos desde PULSO.
+create or replace function public.create_pulso_receipt(p_payload jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_receipt_id uuid := gen_random_uuid();
+  v_movement_id uuid := gen_random_uuid();
+  v_dest uuid;
+  v_source_org uuid;
+  v_source_wh uuid;
+  v_item jsonb;
+  v_material uuid;
+  v_material_serialized boolean;
+  v_equipment uuid;
+  v_existing_material uuid;
+  v_receipt_code text;
+  v_movement_code text;
+  v_serial text;
+  v_sap text;
+  v_quantity numeric;
+begin
+  if v_user is null then raise exception 'AUTH_REQUIRED'; end if;
+  if p_payload is null or jsonb_typeof(coalesce(p_payload->'items','[]'::jsonb)) <> 'array' then
+    raise exception 'INVALID_PAYLOAD';
+  end if;
+  if jsonb_array_length(coalesce(p_payload->'items','[]'::jsonb)) = 0 then
+    raise exception 'RECEIPT_WITHOUT_ITEMS';
+  end if;
+
+  begin
+    v_dest := (p_payload->>'destinationWarehouseId')::uuid;
+  exception when others then
+    raise exception 'INVALID_DESTINATION_WAREHOUSE';
+  end;
+
+  if v_dest is null or not exists(select 1 from public.sap_warehouses where id=v_dest and active=true) then
+    raise exception 'INVALID_DESTINATION_WAREHOUSE';
+  end if;
+
+  if exists (
+    select 1
+    from (
+      select upper(trim(x->>'serial')) serial, count(*) qty
+      from jsonb_array_elements(coalesce(p_payload->'items','[]'::jsonb)) x
+      where coalesce(trim(x->>'serial'),'') <> ''
+      group by upper(trim(x->>'serial'))
+      having count(*) > 1
+    ) d
+  ) then
+    raise exception 'DUPLICATE_SERIAL_IN_RECEIPT';
+  end if;
+
+  if coalesce(trim(p_payload->>'source'),'') <> '' then
+    insert into public.organizations(name, organization_type, created_by)
+    values (trim(p_payload->>'source'), 'ALIADO', v_user)
+    on conflict (name) do update set name=excluded.name
+    returning id into v_source_org;
+  end if;
+
+  if coalesce(trim(p_payload->>'sourceWarehouse'),'') <> '' then
+    select id into v_source_wh
+    from public.sap_warehouses
+    where upper(code)=upper(trim(p_payload->>'sourceWarehouse'))
+    order by active desc, created_at desc
+    limit 1;
+  end if;
+
+  v_receipt_code := 'ING-' || to_char(clock_timestamp(),'YYYYMMDDHH24MISSMS');
+  v_movement_code := 'MOV-' || to_char(clock_timestamp(),'YYYYMMDDHH24MISSMS');
+
+  insert into public.receipts(
+    id,pulso_code,effective_date,record_origin,info_status,
+    source_organization_id,source_warehouse_id,destination_warehouse_id,
+    source_document,notes,created_by,updated_by
+  ) values (
+    v_receipt_id,v_receipt_code,(p_payload->>'effectiveDate')::date,
+    coalesce(nullif(p_payload->>'recordOrigin',''),'OPERATIVO'),
+    coalesce(nullif(p_payload->>'infoStatus',''),'COMPLETO'),
+    v_source_org,v_source_wh,v_dest,
+    nullif(trim(p_payload->>'sourceDocument'),''),
+    nullif(trim(p_payload->>'notes'),''),
+    v_user,v_user
+  );
+
+  insert into public.movements(
+    id,pulso_code,movement_type,effective_at,record_origin,
+    source_warehouse_id,destination_warehouse_id,source_organization_id,
+    source_document,related_receipt_id,notes,created_by
+  ) values (
+    v_movement_id,v_movement_code,'INGRESO',
+    ((p_payload->>'effectiveDate')::date)::timestamptz,
+    coalesce(nullif(p_payload->>'recordOrigin',''),'OPERATIVO'),
+    v_source_wh,v_dest,v_source_org,
+    nullif(trim(p_payload->>'sourceDocument'),''),
+    v_receipt_id,nullif(trim(p_payload->>'notes'),''),
+    v_user
+  );
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_payload->'items','[]'::jsonb))
+  loop
+    v_sap := upper(trim(v_item->>'sapCode'));
+    v_serial := nullif(upper(trim(v_item->>'serial')), '');
+    v_quantity := coalesce(nullif(v_item->>'quantity','')::numeric, 1);
+
+    if coalesce(v_sap,'') = '' then raise exception 'SAP_CODE_REQUIRED'; end if;
+    if v_quantity <= 0 then raise exception 'INVALID_QUANTITY:%', v_sap; end if;
+
+    insert into public.materials(sap_code,description,category,serialized,created_by)
+    values (v_sap,'Pendiente de completar',null,v_serial is not null,v_user)
+    on conflict (sap_code) do nothing;
+
+    select id,serialized into v_material,v_material_serialized
+    from public.materials where sap_code=v_sap;
+
+    if v_material_serialized and v_serial is null then
+      raise exception 'MATERIAL_REQUIRES_SERIAL:%', v_sap;
+    end if;
+    if not v_material_serialized and v_serial is not null then
+      raise exception 'MATERIAL_NON_SERIAL:%', v_sap;
+    end if;
+    if v_material_serialized and v_quantity <> 1 then
+      raise exception 'SERIALIZED_QUANTITY_MUST_BE_ONE:%', v_sap;
+    end if;
+
+    v_equipment := null;
+    v_existing_material := null;
+
+    if v_serial is not null then
+      select id,material_id into v_equipment,v_existing_material
+      from public.equipment where serial=v_serial;
+
+      if v_equipment is not null and v_existing_material <> v_material then
+        raise exception 'SERIAL_MATERIAL_MISMATCH:%', v_serial;
+      end if;
+
+      if v_equipment is null then
+        insert into public.equipment(
+          serial,material_id,current_status,current_warehouse_id,first_seen_at,created_by
+        ) values (
+          v_serial,v_material,'DISPONIBLE',v_dest,(p_payload->>'effectiveDate')::date,v_user
+        )
+        returning id into v_equipment;
+      else
+        update public.equipment
+        set current_status='DISPONIBLE',current_warehouse_id=v_dest,updated_at=now()
+        where id=v_equipment;
+      end if;
+    end if;
+
+    insert into public.receipt_items(
+      receipt_id,material_id,equipment_id,serial_snapshot,quantity,reception_type,lot_type
+    ) values (
+      v_receipt_id,v_material,v_equipment,v_serial,v_quantity,
+      coalesce(nullif(v_item->>'receptionType',''),'Nuevo'),
+      coalesce(nullif(v_item->>'lotType',''),'VALORADO')
+    );
+
+    insert into public.movement_items(
+      movement_id,material_id,equipment_id,quantity,status_after
+    ) values (
+      v_movement_id,v_material,v_equipment,v_quantity,
+      case when v_equipment is not null then 'DISPONIBLE' else null end
+    );
+  end loop;
+
+  return v_receipt_id;
+end;
+$$;
+
+revoke all on function public.create_pulso_receipt(jsonb) from public, anon;
+grant execute on function public.create_pulso_receipt(jsonb) to authenticated;
