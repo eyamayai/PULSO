@@ -9,6 +9,7 @@
   <link rel="icon" href="assets/brand/pulso-icon.png" type="image/png">
   <link rel="apple-touch-icon" href="assets/brand/pulso-icon.png">
   <link rel="preload" as="image" href="assets/images/pulso-login-wallpaper.png">
+  <link rel="preload" as="image" href="assets/brand/pulso-logo-light.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
@@ -42,11 +43,11 @@
     <div class="login-right">
       <form id="loginForm" class="login-card">
         <div class="login-lockup">
-          <img src="assets/brand/pulso-icon.png" alt="" class="login-lockup-icon">
-          <div class="login-lockup-copy">
-            <div class="login-lockup-name">PULSO</div>
-            <div class="login-lockup-tagline">El pulso de tu operación.</div>
-          </div>
+          <img
+            src="assets/brand/pulso-logo-light.png"
+            onerror="this.onerror=null;this.src='assets/brand/pulso-logo.png'"
+            alt="PULSO"
+            class="login-lockup-logo">
         </div>
 
         <h2>Acceso seguro a la operación</h2>
@@ -89,7 +90,7 @@
   <section id="appView" class="app-view hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img src="assets/brand/pulso-logo.png" onerror="this.onerror=null;this.src='assets/brand/pulso-logo.svg'" alt="PULSO">
+        <img src="assets/brand/pulso-logo-light.png" onerror="this.onerror=null;this.src='assets/brand/pulso-logo.png'" alt="PULSO">
       </div>
       <nav class="nav">
         <button class="nav-item active" data-page="dashboard"><span>⌂</span> Inicio</button>
