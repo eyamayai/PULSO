@@ -397,7 +397,9 @@
       var serial = type === "SERIAL" ? normalizeText(getCell(raw, ["Serial","Número de Serie","Numero de Serie"])).toUpperCase() : "";
       var quantityRaw = type === "SERIAL" ? 1 : getCell(raw, ["Cantidad","Cant","Cantidad Ingresada"]);
       var quantity = Number(String(quantityRaw || "").replace(",", "."));
-      var receptionType = normalizeText(getCell(raw, ["Tipo de Recepción","Tipo Recepción","Tipo de Recepcion","Tipo Recepcion"]));
+      var receptionRaw = normalizeText(getCell(raw, ["Tipo de Recepción","Tipo Recepción","Tipo de Recepcion","Tipo Recepcion"]));
+      var receptionKey = normalizeKey(receptionRaw);
+      var receptionType = receptionKey === "nuevo" ? "Nuevo" : (receptionKey === "remanufacturado" ? "Remanufacturado" : receptionRaw);
       var lotType = normalizeText(getCell(raw, ["Lote","Tipo de Lote"])).toUpperCase();
 
       return {
@@ -443,8 +445,13 @@
     lookup[1].forEach(function (e) { equipment[String(e.serial).toUpperCase()] = e; });
 
     var serialCounts = {};
+    var sapTypes = {};
     rows.forEach(function (r) {
       if (r.serial) serialCounts[r.serial] = (serialCounts[r.serial] || 0) + 1;
+      if (r.sapCode) {
+        if (!sapTypes[r.sapCode]) sapTypes[r.sapCode] = {};
+        sapTypes[r.sapCode][r.sourceType] = true;
+      }
     });
 
     rows.forEach(function (row) {
@@ -470,6 +477,9 @@
       }
 
       var material = materials[row.sapCode];
+      if (row.sapCode && sapTypes[row.sapCode] && sapTypes[row.sapCode].SERIAL && sapTypes[row.sapCode].NONSERIAL) {
+        addIssue(row, "ERROR", "El mismo Código SAP aparece como serializado y no serializado en el archivo.");
+      }
       if (!material && row.sapCode) {
         row.description = "Pendiente de maestra";
         addIssue(row, "WARNING", "Código SAP no existe en la maestra; se creará pendiente de completar.");
