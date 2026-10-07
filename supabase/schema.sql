@@ -483,3 +483,29 @@ $$;
 
 revoke all on function public.create_pulso_receipt(jsonb) from public, anon;
 grant execute on function public.create_pulso_receipt(jsonb) to authenticated;
+
+
+-- =========================================================
+-- PREALERTA · Maestro interno derivado de la hoja Datos
+-- Solo lectura desde el cliente autenticado.
+-- =========================================================
+create table if not exists public.prealerta_master (
+  sap_code text primary key,
+  description text not null default '',
+  segment text,
+  diagnosticable text,
+  profile text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.prealerta_master enable row level security;
+
+revoke all on table public.prealerta_master from anon, authenticated;
+grant select on table public.prealerta_master to authenticated;
+
+drop policy if exists authenticated_read_prealerta_master on public.prealerta_master;
+create policy authenticated_read_prealerta_master
+on public.prealerta_master
+for select
+to authenticated
+using (true);
