@@ -550,3 +550,24 @@ label{display:block;margin-bottom:6px;color:#91A29A;font-size:11px;font-weight:7
   .city-downloads{flex-direction:column}
   .city-downloads button{width:100%}
 }
+
+
+/* ========================= ACTAS DE BAJA V1 ========================= */
+.acta-process-panel{border-color:rgba(243,156,18,.17);background:linear-gradient(135deg,rgba(41,31,12,.38),rgba(7,26,22,.97))}
+.acta-orb{border-color:rgba(243,156,18,.24);background:rgba(243,156,18,.07)}
+.acta-orb::before{background:#F39C12;box-shadow:0 0 18px rgba(243,156,18,.34)}
+.acta-orb::after{border-color:rgba(243,156,18,.12)}
+.acta-summary .prealert-kpi.success strong{color:#57DFAE}
+.acta-summary .prealert-kpi.warranty strong{color:#F0AD42}
+.acta-summary .prealert-kpi.review strong{color:#89BEE5}
+.acta-city-name{display:block;margin-top:2px;color:#6F8279;font-size:8.5px}
+.acta-zone-copy{
+  margin-bottom:12px;padding:9px 10px;border-radius:9px;background:rgba(255,255,255,.02);
+  display:flex;align-items:center;justify-content:space-between;gap:12px
+}
+.acta-zone-copy span{font-size:8.5px;color:#6A7C74}.acta-zone-copy strong{font-size:9.5px;color:#C9D9D2}
+.acta-result-table{min-width:1080px}
+.acta-result-table td:nth-child(3){min-width:260px}
+.acta-result-table td:last-child{min-width:220px}
+.nav-item[data-module="actas-baja"].active{box-shadow:inset 3px 0 0 #F39C12;background:rgba(243,156,18,.10)}
+.nav-item[data-module="actas-baja"].active span{color:#F39C12}
