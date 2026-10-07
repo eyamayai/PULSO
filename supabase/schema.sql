@@ -509,3 +509,27 @@ on public.prealerta_master
 for select
 to authenticated
 using (true);
+
+
+-- =========================================================
+-- PREALERTA · Desactivar superficie operativa anterior
+-- Los datos históricos se conservan, pero el cliente web actual
+-- solo puede leer profiles y prealerta_master.
+-- =========================================================
+revoke execute on function public.create_pulso_receipt(jsonb) from authenticated, anon, public;
+
+revoke all on table
+  public.organizations,
+  public.sap_centers,
+  public.locations,
+  public.sap_warehouses,
+  public.materials,
+  public.equipment,
+  public.receipts,
+  public.receipt_items,
+  public.movements,
+  public.movement_items,
+  public.audit_log
+from anon, authenticated;
+
+grant select on table public.prealerta_master to authenticated;
