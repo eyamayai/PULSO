@@ -12,6 +12,63 @@
   var analysis = null;
   var activeResultTab = "prealert";
 
+  var actaSources = {
+    control: { file: null, rows: [], sheet: "", ready: false, error: "" },
+    removed: { file: null, rows: [], sheet: "", ready: false, error: "" },
+    history: { file: null, rows: [], sheet: "", ready: false, error: "" }
+  };
+  var actaAnalysis = null;
+  var activeActaTab = "pending";
+
+  var ACTA_ZONE_CONFIG = {
+    Riohacha: { sheetName: "ACTA BAJA GUAJIRA", regionLabel: "GUAJIRA" },
+    Valledupar: { sheetName: "ACTA BAJA CESAR", regionLabel: "CESAR" }
+  };
+
+  var ACTA_SOURCE_DEFS = {
+    control: {
+      inputId: "abFileControl", nameId: "abNameControl", metaId: "abMetaControl", stateId: "abStateControl",
+      label: "Control de retirados",
+      fields: {
+        city: ["Bodega Base", "Bodega", "Ciudad"],
+        designation: ["Designación del repuesto", "Designacion del repuesto", "Designación de repuesto", "Designacion de repuesto"],
+        date: ["Fecha de Instalación del Repuesto", "Fecha de Instalacion del Repuesto", "Fecha de retirado", "Fecha retirado"],
+        beneficiaryId: ["ID Beneficiario de Instalación", "ID Beneficiario de Instalacion", "ID Beneficiario", "ID"],
+        sap: ["SAP de Repuesto retirado", "SAP de Repuesto Retirado", "Código SAP retirado", "Codigo SAP retirado", "SAP retirado"],
+        detail: ["Detalle del Repuesto2", "Detalle del Repuesto", "Descripción", "Descripcion"],
+        serial: ["Serial de Repuesto Retirado", "Serial de repuesto retirado", "Serial retirado"]
+      },
+      required: ["city", "designation", "date", "beneficiaryId", "sap"]
+    },
+    removed: {
+      inputId: "abFileRemoved", nameId: "abNameRemoved", metaId: "abMetaRemoved", stateId: "abStateRemoved",
+      label: "Desmontados",
+      fields: {
+        sap: ["Codigo SAP", "Código SAP", "Material"],
+        date: ["Fecha"],
+        beneficiaryId: ["ID", "ID Beneficiario"],
+        workOrder: ["Orden de Trabajo", "Orden Trabajo", "OT"]
+      },
+      required: ["sap", "date", "beneficiaryId", "workOrder"]
+    },
+    history: {
+      inputId: "abFileHistory", nameId: "abNameHistory", metaId: "abMetaHistory", stateId: "abStateHistory",
+      label: "Historial de actas",
+      fields: {
+        sap: ["Código Sap", "Codigo Sap", "Código SAP", "Codigo SAP"],
+        description: ["Descripción", "Descripcion"],
+        serial: ["Serial"],
+        quantity: ["Cantidad"],
+        date: ["Fecha de Instalación", "Fecha de Instalacion", "Fecha"],
+        beneficiaryId: ["ID", "ID Beneficiario"],
+        workOrder: ["OT", "Orden de Trabajo"],
+        zone: ["ZONA", "Zona"],
+        actaNumber: ["NRO", "Nro", "Número Acta", "Numero Acta", "Acta"]
+      },
+      required: ["sap", "date", "beneficiaryId", "workOrder", "actaNumber"]
+    }
+  };
+
   var CITY_CONFIG = {
     Riohacha: {
       aliases: ["RIOHACHA", "A221", "Q221", "U020"],
@@ -251,11 +308,21 @@
       masterRows.forEach(function (row) { masterMap.set(normalizeCode(row.sap_code), row); });
       status.textContent = masterRows.length + " materiales cargados";
       pill.classList.add("ready");
+      if (byId("abMasterStatus")) {
+        byId("abMasterStatus").textContent = masterRows.length + " materiales cargados";
+        byId("abMasterPill").classList.remove("error");
+        byId("abMasterPill").classList.add("ready");
+      }
       refreshRunState();
+      refreshActaRunState();
     } catch (error) {
       console.error(error);
       status.textContent = "Error al cargar";
       pill.classList.add("error");
+      if (byId("abMasterStatus")) {
+        byId("abMasterStatus").textContent = "Error al cargar";
+        byId("abMasterPill").classList.add("error");
+      }
       toast("No fue posible cargar el maestro interno.");
     }
   }
@@ -761,9 +828,9 @@
   }
 
   function bindResultTabs() {
-    document.querySelectorAll(".result-tab").forEach(function (button) {
+    document.querySelectorAll("[data-result-tab]").forEach(function (button) {
       button.addEventListener("click", function () {
-        document.querySelectorAll(".result-tab").forEach(function (x) { x.classList.remove("active"); });
+        document.querySelectorAll("[data-result-tab]").forEach(function (x) { x.classList.remove("active"); });
         button.classList.add("active");
         activeResultTab = button.dataset.resultTab;
         renderResultTable();
@@ -1090,6 +1157,397 @@
     toast("Acta de garantía de " + city + " generada.");
   }
 
+
+
+  function isMetalmecanica(master) {
+    return master && normalizeKey(master.segment).indexOf("METALMECANICA") >= 0;
+  }
+
+  function actaHistoryKey(sap, date, beneficiaryId, workOrder) {
+    return normalizeCode(sap) + "|" + dateKey(date) + "|" + normalizeCode(beneficiaryId) + "|" + normalizeKey(workOrder);
+  }
+
+  function setActaSourceUi(key, mode, title, meta) {
+    var def = ACTA_SOURCE_DEFS[key];
+    byId(def.nameId).textContent = title;
+    byId(def.metaId).textContent = meta;
+    var stateEl = byId(def.stateId);
+    var card = document.querySelector('.source-card[data-ab-source="' + key + '"]');
+    var drop = document.querySelector('.source-dropzone[data-ab-drop="' + key + '"]');
+    stateEl.className = "source-state " + mode;
+    stateEl.querySelector("small").textContent = mode === "loaded" ? "Listo" : (mode === "error" ? "Revisar" : (mode === "loading" ? "Procesando" : "Pendiente"));
+    card.classList.remove("loaded", "error", "loading");
+    drop.classList.remove("loaded", "error", "loading");
+    card.classList.add(mode); drop.classList.add(mode);
+  }
+
+  async function parseActaSource(key, file) {
+    var def = ACTA_SOURCE_DEFS[key];
+    var state = actaSources[key];
+    state.file = file; state.ready = false; state.error = ""; state.rows = []; state.sheet = "";
+    setActaSourceUi(key, "loading", file.name, "Leyendo y validando estructura...");
+    try {
+      var buffer = await file.arrayBuffer();
+      var workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      var selected = chooseSheet(workbook, def);
+      var rows = extractRows(selected.sheet, selected.headerRow, def);
+      if (!rows.length) throw new Error("La hoja seleccionada no contiene registros.");
+      state.rows = rows; state.sheet = selected.name; state.ready = true;
+      setActaSourceUi(key, "loaded", file.name, rows.length.toLocaleString("es-CO") + " registros · hoja " + selected.name);
+      toast(def.label + " cargado correctamente.");
+    } catch (error) {
+      console.error(error);
+      state.error = error.message || "Archivo inválido";
+      setActaSourceUi(key, "error", file.name, state.error);
+      toast(def.label + ": " + state.error);
+    }
+    actaAnalysis = null;
+    byId("abResultSection").classList.add("hidden");
+    refreshActaRunState();
+  }
+
+  function refreshActaRunState() {
+    if (!byId("abRun")) return;
+    var loaded = Object.keys(actaSources).filter(function (k) { return actaSources[k].ready; }).length;
+    var masterReady = masterRows.length > 0;
+    var button = byId("abRun");
+    button.disabled = loaded !== 3 || !masterReady;
+
+    if (!masterReady) {
+      byId("abProcessTitle").textContent = "Cargando maestro interno";
+      byId("abProcessText").textContent = "PULSO necesita la segmentación y el perfil de los materiales.";
+    } else if (loaded < 3) {
+      byId("abProcessTitle").textContent = "Esperando " + (3 - loaded) + " fuente(s)";
+      byId("abProcessText").textContent = "Carga Control de retirados, Desmontados e Historial de actas.";
+    } else {
+      byId("abProcessTitle").textContent = "Todo listo para analizar";
+      byId("abProcessText").textContent =
+        actaSources.control.rows.length.toLocaleString("es-CO") + " retirados · " +
+        actaSources.removed.rows.length.toLocaleString("es-CO") + " desmontados · " +
+        actaSources.history.rows.length.toLocaleString("es-CO") + " líneas históricas.";
+    }
+  }
+
+  function bindActaSources() {
+    document.querySelectorAll("[data-ab-pick]").forEach(function (button) {
+      button.addEventListener("click", function () { byId(ACTA_SOURCE_DEFS[button.dataset.abPick].inputId).click(); });
+    });
+
+    Object.keys(ACTA_SOURCE_DEFS).forEach(function (key) {
+      var def = ACTA_SOURCE_DEFS[key];
+      byId(def.inputId).addEventListener("change", function (event) {
+        var file = event.target.files && event.target.files[0];
+        if (file) parseActaSource(key, file);
+      });
+      var drop = document.querySelector('.source-dropzone[data-ab-drop="' + key + '"]');
+      ["dragenter", "dragover"].forEach(function (name) {
+        drop.addEventListener(name, function (event) { event.preventDefault(); drop.classList.add("dragging"); });
+      });
+      ["dragleave", "drop"].forEach(function (name) {
+        drop.addEventListener(name, function (event) { event.preventDefault(); drop.classList.remove("dragging"); });
+      });
+      drop.addEventListener("drop", function (event) {
+        var file = event.dataTransfer.files && event.dataTransfer.files[0];
+        if (file) parseActaSource(key, file);
+      });
+    });
+
+    byId("abRun").addEventListener("click", processActasBaja);
+
+    document.querySelectorAll("[data-ab-result-tab]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        document.querySelectorAll("[data-ab-result-tab]").forEach(function (x) { x.classList.remove("active"); });
+        button.classList.add("active");
+        activeActaTab = button.dataset.abResultTab;
+        renderActaTable();
+      });
+    });
+    byId("abResultSearch").addEventListener("input", renderActaTable);
+  }
+
+  function bindModuleNavigation() {
+    document.querySelectorAll("[data-module]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var module = button.dataset.module;
+        document.querySelectorAll("[data-module]").forEach(function (x) { x.classList.remove("active"); });
+        button.classList.add("active");
+        document.querySelectorAll(".page").forEach(function (x) { x.classList.remove("active"); });
+        byId("page-" + module).classList.add("active");
+        byId("workspaceLabel").textContent = "Proyecto MinTIC · " + (module === "actas-baja" ? "ACTAS DE BAJA" : "PREALERTA");
+        document.querySelector(".sidebar").classList.remove("open");
+      });
+    });
+  }
+
+  function buildActaIndexes() {
+    var removed = new Map(), removedCount = new Map();
+    actaSources.removed.rows.forEach(function (row) {
+      var key = removedKey(row.sap, row.date, row.beneficiaryId);
+      if (!normalizeCode(row.sap) || !dateKey(row.date) || !normalizeCode(row.beneficiaryId)) return;
+      removedCount.set(key, (removedCount.get(key) || 0) + 1);
+      if (!removed.has(key)) removed.set(key, {
+        workOrder: normalizeText(row.workOrder),
+        sourceRow: row.__row
+      });
+    });
+
+    var history = new Map(), historyCount = new Map();
+    actaSources.history.rows.forEach(function (row) {
+      var key = actaHistoryKey(row.sap, row.date, row.beneficiaryId, row.workOrder);
+      if (!normalizeCode(row.sap) || !dateKey(row.date) || !normalizeCode(row.beneficiaryId) || !normalizeText(row.workOrder)) return;
+      historyCount.set(key, (historyCount.get(key) || 0) + 1);
+      if (!history.has(key)) history.set(key, {
+        actaNumber: normalizeText(row.actaNumber),
+        zone: normalizeText(row.zone),
+        sourceRow: row.__row
+      });
+    });
+    return { removed: removed, removedCount: removedCount, history: history, historyCount: historyCount };
+  }
+
+  function processActasBaja() {
+    if (Object.keys(actaSources).some(function (k) { return !actaSources[k].ready; }) || !masterRows.length) return;
+    var button = byId("abRun");
+    button.disabled = true; button.textContent = "Procesando...";
+    byId("abProcessTitle").textContent = "Cruce de actas en curso";
+    byId("abProcessText").textContent = "Validando Metalmecánica, OT e historial de actas...";
+
+    setTimeout(function () {
+      try {
+        var indexes = buildActaIndexes();
+        var result = {
+          pending: [], processed: [], noOt: [], excluded: [], review: [],
+          cities: { Riohacha: [], Valledupar: [] },
+          stats: { control: actaSources.control.rows.length, metal: 0 }
+        };
+
+        actaSources.control.rows.forEach(function (row) {
+          var sap = normalizeCode(row.sap);
+          var city = resolveCity(row.city);
+          var date = dateKey(row.date);
+          var beneficiaryId = normalizeCode(row.beneficiaryId);
+          var serial = normalizeSerial(row.serial);
+          var master = masterMap.get(sap);
+          var base = {
+            sourceRow: row.__row,
+            city: city || normalizeText(row.city) || "Sin ciudad",
+            sap: sap,
+            description: master && master.description ? master.description : normalizeText(row.detail),
+            serial: serial,
+            date: date,
+            beneficiaryId: beneficiaryId,
+            workOrder: "",
+            actaNumber: "",
+            reason: ""
+          };
+
+          if (!sap) { result.review.push(Object.assign({}, base, { reason: "Registro sin Código SAP retirado." })); return; }
+          if (!city || !ACTA_ZONE_CONFIG[city]) { result.review.push(Object.assign({}, base, { reason: "Ciudad sin configuración para Actas de Baja." })); return; }
+          if (!master) { result.review.push(Object.assign({}, base, { reason: "Código SAP no existe en el maestro interno." })); return; }
+          if (!isMetalmecanica(master)) {
+            result.excluded.push(Object.assign({}, base, { reason: master.segment ? "Segmentación: " + master.segment + "." : "Material no clasificado como Metalmecánica." }));
+            return;
+          }
+          result.stats.metal++;
+
+          if (isRejected(row.designation)) {
+            result.excluded.push(Object.assign({}, base, { reason: "Designación Rechazado; no corresponde a Acta de Baja." }));
+            return;
+          }
+
+          var profile = profileType(master);
+          if (!profile) {
+            result.review.push(Object.assign({}, base, { reason: "Material sin perfil de serie definido en el maestro." }));
+            return;
+          }
+
+          base.serial = profile === "NONSERIAL" ? "SIN PERFIL DE SERIE" : serial;
+          if (profile === "SERIAL" && !serial) {
+            result.review.push(Object.assign({}, base, { reason: "Material CON PERFIL DE SERIE sin serial retirado." }));
+            return;
+          }
+
+          if (!date || !beneficiaryId) {
+            result.review.push(Object.assign({}, base, { reason: "Falta fecha o ID Beneficiario para construir la llave de desmontaje." }));
+            return;
+          }
+
+          var key = removedKey(sap, date, beneficiaryId);
+          var removedEntry = indexes.removed.get(key);
+          if (!removedEntry || !removedEntry.workOrder || normalizeKey(removedEntry.workOrder).indexOf("OT") < 0) {
+            result.noOt.push(Object.assign({}, base, { reason: "Sin Orden de Trabajo válida en Desmontados." }));
+            return;
+          }
+          base.workOrder = removedEntry.workOrder;
+
+          var histKey = actaHistoryKey(sap, date, beneficiaryId, base.workOrder);
+          var hist = indexes.history.get(histKey);
+          if (hist) {
+            base.actaNumber = hist.actaNumber || "Procesado";
+            result.processed.push(Object.assign({}, base, { reason: "Ya incluido en " + (hist.actaNumber || "historial de actas") + "." }));
+          } else {
+            var pending = Object.assign({}, base, { quantity: 1, reason: "Pendiente para nueva acta." });
+            result.pending.push(pending);
+            result.cities[city].push(pending);
+          }
+
+          if ((indexes.removedCount.get(key) || 0) > 1) {
+            result.review.push(Object.assign({}, base, { reason: "La llave SAP + fecha + ID aparece " + indexes.removedCount.get(key) + " veces en Desmontados; se usó la primera OT." }));
+          }
+          if ((indexes.historyCount.get(histKey) || 0) > 1) {
+            result.review.push(Object.assign({}, base, { reason: "La llave completa aparece " + indexes.historyCount.get(histKey) + " veces en Historial; se usó la primera acta." }));
+          }
+        });
+
+        result.pending.sort(function (a,b) { return a.sap.localeCompare(b.sap, undefined, { numeric:true }); });
+        Object.keys(result.cities).forEach(function (city) {
+          result.cities[city].sort(function (a,b) { return a.sap.localeCompare(b.sap, undefined, { numeric:true }); });
+        });
+
+        actaAnalysis = result;
+        renderActaAnalysis();
+        byId("abProcessTitle").textContent = "Análisis completado";
+        byId("abProcessText").textContent =
+          result.pending.length + " pendientes · " + result.processed.length + " ya procesados · " + result.noOt.length + " sin OT.";
+        toast("Actas de Baja procesadas correctamente.");
+      } catch (error) {
+        console.error(error);
+        byId("abProcessTitle").textContent = "No fue posible completar el análisis";
+        byId("abProcessText").textContent = error.message || "Revisa los archivos cargados.";
+        toast("Error procesando Actas de Baja.");
+      } finally {
+        button.disabled = false; button.textContent = "Procesar actas de baja";
+      }
+    }, 40);
+  }
+
+  function renderActaAnalysis() {
+    var r = actaAnalysis;
+    if (!r) return;
+    byId("abResultSection").classList.remove("hidden");
+    byId("abSummaryCards").innerHTML =
+      '<article class="prealert-kpi"><span>Retirados analizados</span><strong>' + r.stats.control + '</strong><small>registros del control</small></article>' +
+      '<article class="prealert-kpi"><span>Metalmecánica</span><strong>' + r.stats.metal + '</strong><small>según maestro interno</small></article>' +
+      '<article class="prealert-kpi success"><span>Para nueva acta</span><strong>' + r.pending.length + '</strong><small>con OT y no históricos</small></article>' +
+      '<article class="prealert-kpi warranty"><span>Ya procesados</span><strong>' + r.processed.length + '</strong><small>presentes en historial</small></article>' +
+      '<article class="prealert-kpi review"><span>Sin OT</span><strong>' + r.noOt.length + '</strong><small>esperando desmontaje válido</small></article>';
+
+    byId("abCountPending").textContent = r.pending.length;
+    byId("abCountProcessed").textContent = r.processed.length;
+    byId("abCountNoOt").textContent = r.noOt.length;
+    byId("abCountExcluded").textContent = r.excluded.length;
+    byId("abCountReview").textContent = r.review.length;
+    byId("abGenerationDate").textContent = "Procesado " + new Date().toLocaleString("es-CO", { dateStyle:"medium", timeStyle:"short" });
+
+    byId("abCityResults").innerHTML = Object.keys(ACTA_ZONE_CONFIG).map(function (city) {
+      var rows = r.cities[city] || [];
+      var cfg = ACTA_ZONE_CONFIG[city];
+      return '<article class="city-result-card acta-city-card">' +
+        '<div class="city-card-head"><div><span class="city-kicker">ZONA</span><h4>' + escapeHtml(cfg.regionLabel) + '</h4><small class="acta-city-name">' + escapeHtml(city) + '</small></div><span class="city-warehouse">' + rows.length + ' pendientes</span></div>' +
+        '<div class="acta-zone-copy"><span>Hoja de salida</span><strong>' + escapeHtml(cfg.sheetName) + '</strong></div>' +
+        '<div class="city-downloads"><button class="primary-button acta-download" type="button" data-acta-city="' + city + '"' + (rows.length ? '' : ' disabled') + '>Descargar acta de baja</button></div>' +
+      '</article>';
+    }).join("");
+
+    document.querySelectorAll(".acta-download").forEach(function (button) {
+      button.addEventListener("click", function () { generateActaBajaWorkbook(button.dataset.actaCity); });
+    });
+    renderActaTable();
+    setTimeout(function () { byId("abResultSection").scrollIntoView({ behavior:"smooth", block:"start" }); }, 80);
+  }
+
+  function actaRowsForTab() {
+    if (!actaAnalysis) return [];
+    if (activeActaTab === "processed") return actaAnalysis.processed;
+    if (activeActaTab === "noOt") return actaAnalysis.noOt;
+    if (activeActaTab === "excluded") return actaAnalysis.excluded;
+    if (activeActaTab === "review") return actaAnalysis.review;
+    return actaAnalysis.pending;
+  }
+
+  function renderActaTable() {
+    if (!byId("abResultTable")) return;
+    var rows = actaRowsForTab();
+    var query = normalizeKey(byId("abResultSearch").value);
+    if (query) {
+      rows = rows.filter(function (r) {
+        return normalizeKey([r.city,r.sap,r.description,r.serial,r.date,r.beneficiaryId,r.workOrder,r.actaNumber,r.reason].join(" ")).indexOf(query) >= 0;
+      });
+    }
+    byId("abResultTable").innerHTML = rows.map(function (r) {
+      var state = activeActaTab === "processed" ? (r.actaNumber || "Procesado") :
+        (activeActaTab === "pending" ? "Nueva acta" : (r.reason || "Revisar"));
+      return "<tr>" +
+        "<td><strong>" + escapeHtml(r.city || "—") + "</strong></td>" +
+        "<td>" + escapeHtml(r.sap || "—") + "</td>" +
+        "<td>" + escapeHtml(r.description || "—") + "</td>" +
+        '<td class="serial-cell">' + escapeHtml(r.serial || "—") + "</td>" +
+        "<td>" + escapeHtml(dateLabel(r.date) || "—") + "</td>" +
+        "<td>" + escapeHtml(r.beneficiaryId || "—") + "</td>" +
+        "<td>" + escapeHtml(r.workOrder || "—") + "</td>" +
+        "<td>" + escapeHtml(state) + "</td>" +
+      "</tr>";
+    }).join("");
+    byId("abResultEmpty").classList.toggle("hidden", rows.length > 0);
+  }
+
+  async function generateActaBajaWorkbook(city) {
+    if (!actaAnalysis || !actaAnalysis.cities[city] || !actaAnalysis.cities[city].length) {
+      toast("No hay material pendiente para " + city + ".");
+      return;
+    }
+    if (!window.ExcelJS) { toast("No fue posible cargar el generador de Excel."); return; }
+
+    var rows = actaAnalysis.cities[city];
+    var cfg = ACTA_ZONE_CONFIG[city];
+    var wb = new ExcelJS.Workbook();
+    wb.creator = "PULSO";
+    wb.created = new Date();
+    var ws = wb.addWorksheet(cfg.sheetName);
+    ws.views = [{ showGridLines:true }];
+
+    ws.columns = [
+      { header:"Código Sap", key:"sap", width:8.43 },
+      { header:"Descripción", key:"description", width:34.14 },
+      { header:"Serial", key:"serial", width:15 },
+      { header:"Cantidad", key:"quantity", width:7 },
+      { header:"Fecha de Instalación", key:"date", width:14.43 },
+      { header:"ID", key:"id", width:5.29 },
+      { header:"OT", key:"ot", width:8.71 }
+    ];
+
+    var header = ws.getRow(1);
+    header.height = 18;
+    header.eachCell(function (cell) {
+      cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FF000000" } };
+      cell.font = { name:"Aptos Narrow", size:8, bold:true, color:{ argb:"FFFFFFFF" } };
+      cell.alignment = { horizontal:"center", vertical:"middle", wrapText:true };
+      cell.border = excelBorder();
+    });
+
+    rows.forEach(function (r) {
+      var row = ws.addRow({
+        sap:r.sap,
+        description:r.description,
+        serial:r.serial,
+        quantity:1,
+        date:dateObject(r.date),
+        id:r.beneficiaryId,
+        ot:r.workOrder
+      });
+      row.eachCell(function (cell) {
+        cell.font = { name:"Aptos Narrow", size:8, color:{ argb:"FF000000" } };
+        cell.alignment = { vertical:"middle" };
+      });
+      row.getCell(3).numFmt = "@";
+      row.getCell(5).numFmt = "dd/mm/yyyy";
+    });
+
+    await downloadWorkbook(wb, cfg.sheetName + " " + generationSuffix() + ".xlsx");
+    toast("Acta de Baja " + cfg.regionLabel + " generada.");
+  }
+
+
   async function downloadWorkbook(workbook, fileName) {
     var buffer = await workbook.xlsx.writeBuffer();
     var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -1103,6 +1561,9 @@
   bindAuth();
   bindSources();
   bindResultTabs();
+  bindActaSources();
+  bindModuleNavigation();
   refreshRunState();
+  refreshActaRunState();
   initSession();
 })();
