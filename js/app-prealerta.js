@@ -797,7 +797,7 @@
         "<td><strong>" + escapeHtml(r.city || "—") + "</strong></td>" +
         '<td><span class="result-type ' + typeClass + '">' + escapeHtml(r.resultType || "—") + "</span></td>" +
         "<td>" + escapeHtml(r.codeReported || r.sap || "—") + "</td>" +
-        "<td class="serial-cell">" + escapeHtml(r.serial || "—") + "</td>" +
+        '<td class="serial-cell">' + escapeHtml(r.serial || "—") + "</td>" +
         "<td>" + escapeHtml(dateLabel(r.date) || "—") + "</td>" +
         "<td>" + escapeHtml(r.workOrder || "—") + "</td>" +
         "<td>" + escapeHtml(r.iqWarehouse || "—") + "</td>" +
