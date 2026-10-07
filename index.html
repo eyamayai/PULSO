@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#0B5D46">
-  <meta name="description" content="PULSO - Generador de prealertas MinTIC">
-  <title>PULSO | Prealerta MinTIC</title>
+  <meta name="description" content="PULSO - Prealertas y Actas de Baja MinTIC">
+  <title>PULSO | Operación MinTIC</title>
   <link rel="icon" href="assets/brand/pulso-icon.png" type="image/png">
   <link rel="apple-touch-icon" href="assets/brand/pulso-icon.png">
   <link rel="preload" as="image" href="assets/images/pulso-login-wallpaper.png">
@@ -84,7 +84,8 @@
         <img src="assets/brand/pulso-logo-light.png" onerror="this.onerror=null;this.src='assets/brand/pulso-logo.png'" alt="PULSO">
       </div>
       <nav class="nav">
-        <button class="nav-item active" type="button"><span>↗</span> PREALERTA</button>
+        <button class="nav-item active" type="button" data-module="prealerta"><span>↗</span> PREALERTA</button>
+        <button class="nav-item" type="button" data-module="actas-baja"><span>▤</span> ACTAS DE BAJA</button>
       </nav>
       <div class="sidebar-footer">
         <span class="status-dot"></span>
@@ -96,7 +97,7 @@
       <header class="topbar">
         <div>
           <button class="menu-button" id="menuButton" type="button">☰</button>
-          <span class="workspace">Proyecto MinTIC · PREALERTA</span>
+          <span class="workspace" id="workspaceLabel">Proyecto MinTIC · PREALERTA</span>
         </div>
         <div class="topbar-actions">
           <span class="mode-chip local-mode">Procesamiento local</span>
@@ -226,6 +227,132 @@
                 </table>
               </div>
               <div id="resultEmpty" class="empty-state hidden">No hay registros para esta vista.</div>
+            </section>
+          </section>
+        </section>
+
+        <section class="page" id="page-actas-baja">
+          <div class="page-heading split prealert-heading">
+            <div>
+              <span class="eyebrow">MATERIAL METALMECÁNICO</span>
+              <h2>ACTAS DE BAJA</h2>
+              <p>Cruza retirados, desmontados e historial para identificar material aún no incluido en actas anteriores.</p>
+            </div>
+            <div class="master-pill" id="abMasterPill">
+              <span class="master-dot"></span>
+              <div><strong>Maestro interno</strong><small id="abMasterStatus">Cargando...</small></div>
+            </div>
+          </div>
+
+          <section class="upload-grid">
+            <article class="source-card" data-ab-source="control">
+              <div class="source-number">01</div>
+              <div class="source-head">
+                <span class="source-icon">RT</span>
+                <div><h3>Control de retirados</h3><p>Universo de equipos retirados reportados.</p></div>
+              </div>
+              <div class="source-dropzone" data-ab-drop="control">
+                <input type="file" id="abFileControl" accept=".xlsx,.xls,.xlsm" hidden>
+                <strong id="abNameControl">Selecciona el control de retirados</strong>
+                <small id="abMetaControl">Bodega base · Fecha instalación · ID · SAP retirado · Serial retirado</small>
+                <button class="secondary-button source-button" type="button" data-ab-pick="control">Cargar control</button>
+              </div>
+              <div class="source-state" id="abStateControl"><span></span><small>Pendiente</small></div>
+            </article>
+
+            <article class="source-card" data-ab-source="removed">
+              <div class="source-number">02</div>
+              <div class="source-head">
+                <span class="source-icon">OT</span>
+                <div><h3>Desmontados en bodega</h3><p>Fuente para recuperar la Orden de Trabajo.</p></div>
+              </div>
+              <div class="source-dropzone" data-ab-drop="removed">
+                <input type="file" id="abFileRemoved" accept=".xlsx,.xls,.xlsm" hidden>
+                <strong id="abNameRemoved">Selecciona el listado de desmontados</strong>
+                <small id="abMetaRemoved">Código SAP · Fecha · ID · Orden de trabajo</small>
+                <button class="secondary-button source-button" type="button" data-ab-pick="removed">Cargar desmontados</button>
+              </div>
+              <div class="source-state" id="abStateRemoved"><span></span><small>Pendiente</small></div>
+            </article>
+
+            <article class="source-card" data-ab-source="history">
+              <div class="source-number">03</div>
+              <div class="source-head">
+                <span class="source-icon">HA</span>
+                <div><h3>Historial de actas</h3><p>Material ya entregado o procesado previamente.</p></div>
+              </div>
+              <div class="source-dropzone" data-ab-drop="history">
+                <input type="file" id="abFileHistory" accept=".xlsx,.xls,.xlsm" hidden>
+                <strong id="abNameHistory">Selecciona el historial de actas</strong>
+                <small id="abMetaHistory">Código SAP · Fecha instalación · ID · OT · N.º Acta</small>
+                <button class="secondary-button source-button" type="button" data-ab-pick="history">Cargar historial</button>
+              </div>
+              <div class="source-state" id="abStateHistory"><span></span><small>Pendiente</small></div>
+            </article>
+          </section>
+
+          <section class="panel prealert-process-panel acta-process-panel">
+            <div class="process-copy">
+              <span class="pulse-orb acta-orb"></span>
+              <div>
+                <h3 id="abProcessTitle">Esperando las tres fuentes</h3>
+                <p id="abProcessText">PULSO procesará únicamente materiales clasificados como Metalmecánica.</p>
+              </div>
+            </div>
+            <button class="primary-button prealert-process-button" id="abRun" type="button" disabled>Procesar actas de baja</button>
+          </section>
+
+          <section id="abResultSection" class="hidden">
+            <div class="prealert-summary acta-summary" id="abSummaryCards"></div>
+
+            <section class="panel city-panel">
+              <div class="panel-heading split">
+                <div>
+                  <h3>Actas por zona</h3>
+                  <p>Descarga únicamente el material pendiente de incluir en una nueva acta.</p>
+                </div>
+                <span class="generation-date" id="abGenerationDate"></span>
+              </div>
+              <div class="city-results" id="abCityResults"></div>
+            </section>
+
+            <section class="panel review-panel">
+              <div class="panel-heading split">
+                <div>
+                  <h3>Detalle del análisis</h3>
+                  <p>Identifica material pendiente, ya procesado, sin OT o excluido.</p>
+                </div>
+                <div class="result-filter">
+                  <input id="abResultSearch" placeholder="Buscar código, serial, OT, acta o motivo...">
+                </div>
+              </div>
+
+              <div class="result-tabs acta-tabs">
+                <button class="result-tab active" type="button" data-ab-result-tab="pending">Para nueva acta <span id="abCountPending">0</span></button>
+                <button class="result-tab" type="button" data-ab-result-tab="processed">Ya procesados <span id="abCountProcessed">0</span></button>
+                <button class="result-tab" type="button" data-ab-result-tab="noOt">Sin OT <span id="abCountNoOt">0</span></button>
+                <button class="result-tab" type="button" data-ab-result-tab="excluded">Excluidos <span id="abCountExcluded">0</span></button>
+                <button class="result-tab" type="button" data-ab-result-tab="review">Revisión <span id="abCountReview">0</span></button>
+              </div>
+
+              <div class="table-wrap result-table-wrap">
+                <table class="result-table acta-result-table">
+                  <thead>
+                    <tr>
+                      <th>Ciudad</th>
+                      <th>Código SAP</th>
+                      <th>Descripción</th>
+                      <th>Serial</th>
+                      <th>Fecha</th>
+                      <th>ID</th>
+                      <th>OT</th>
+                      <th>Estado / Acta</th>
+                    </tr>
+                  </thead>
+                  <tbody id="abResultTable"></tbody>
+                </table>
+              </div>
+              <div id="abResultEmpty" class="empty-state hidden">No hay registros para esta vista.</div>
             </section>
           </section>
         </section>
