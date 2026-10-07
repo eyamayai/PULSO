@@ -121,6 +121,15 @@
     return result.data;
   }
 
+  async function getPrealertMaster() {
+    var result = await client
+      .from("prealerta_master")
+      .select("sap_code,description,segment,diagnosticable,profile")
+      .order("sap_code");
+    if (result.error) throw result.error;
+    return result.data || [];
+  }
+
   async function listReceipts(limit) {
     var result = await client
       .from("receipts")
@@ -143,6 +152,7 @@
     findMaterials: findMaterials,
     findEquipment: findEquipment,
     createReceipt: createReceipt,
-    listReceipts: listReceipts
+    listReceipts: listReceipts,
+    getPrealertMaster: getPrealertMaster
   };
 })();
