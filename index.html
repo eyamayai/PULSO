@@ -38,7 +38,7 @@
 'use strict';
 const SUPABASE_ENDPOINT='https://qdzkpwhtxabyqpxmqrcg.supabase.co';
 const KEY='sb_publishable_Sh9uqA-_bGaQTPR9HjGAVg_hW_LAE1o';
-let db=null,me=null,profile=null,resetting=false,locations=[],assets=[],actors=[],transfers=[],notifications=[],movements=[],page='dashboard',kind='INGRESO',rows=[],previewPage=0,reportLoc=[],q='',stockFilter='',locFilter='';
+let db=null,me=null,profile=null,resetting=false,locations=[],assets=[],assetsBySerial=new Map(),actors=[],transfers=[],notifications=[],movements=[],page='dashboard',kind='INGRESO',rows=[],previewPage=0,reportLoc=[],q='',stockFilter='',locFilter='';
 const $=s=>document.querySelector(s);
 const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const val=s=>String(s??'').trim();
@@ -93,7 +93,7 @@ function buildNav(){
 async function login(e){e.preventDefault();if(!db){toast('No cargó la conexión segura. Revisa tu conexión a Internet.',true);return}const {error}=await db.auth.signInWithPassword({email:$('#email').value.trim(),password:$('#pass').value});if(error)toast(error.message,true);else await start()}
 async function start(){if(resetting)return;const s=await db.auth.getUser();if(!s.data?.user){$('#auth').classList.remove('hidden');$('#shell').classList.add('hidden');return}me=s.data.user;const r=await db.from('actors').select('*').eq('id',me.id).maybeSingle();if(r.error){toast('Error al validar permisos: '+r.error.message,true);return}profile=r.data;if(!profile||profile.role==='PENDIENTE'||!profile.active){$('#auth').classList.add('hidden');$('#shell').classList.remove('hidden');$('#content').innerHTML=bodyHead('Acceso pendiente','Tu cuenta requiere autorización del administrador')+'<div class="card notice warn">Tu usuario aún no tiene un perfil autorizado. Solicita a logística que configure tu rol y zona.</div>';$('#nav').innerHTML='';$('#username').textContent=me.email;$('#userrole').textContent='PENDIENTE';return}$('#auth').classList.add('hidden');$('#shell').classList.remove('hidden');$('#username').textContent=profile.name||me.email;$('#userrole').textContent=profile.role;$('#roleBadge').textContent=profile.role;$('#welcome').textContent='Bienvenido, '+(profile.name||'equipo PULSO');await refresh()}
 async function fetchAll(table,sel='*'){let all=[],offset=0,step=1000;for(let n=0;n<20;n++){const {data,error}=await db.from(table).select(sel).range(offset,offset+step-1);if(error){throw new Error(table+': '+error.message)}all.push(...(data||[]));if(!data||data.length<step)break;offset+=step}return all}
-async function refresh(){try{[locations,assets,actors,transfers,notifications]=await Promise.all([fetchAll('locations'),fetchAll('assets'),fetchAll('actors'),fetchAll('transfers'),fetchAll('notifications')]);notifications.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));transfers.sort((a,b)=>new Date(b.requested_at)-new Date(a.requested_at));buildNav();render()}catch(e){toast(e.message,true);$('#content').innerHTML=bodyHead('Conexión pendiente','Revisa el acceso a la base de datos')+'<div class="notice bad">'+safe(e.message)+'</div>'}}
+async function refresh(){try{[locations,assets,actors,transfers,notifications]=await Promise.all([fetchAll('locations'),fetchAll('assets'),fetchAll('actors'),fetchAll('transfers'),fetchAll('notifications')]);assetsBySerial=new Map(assets.map(a=>[val(a.serial).toUpperCase(),a]));notifications.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));transfers.sort((a,b)=>new Date(b.requested_at)-new Date(a.requested_at));buildNav();render()}catch(e){toast(e.message,true);$('#content').innerHTML=bodyHead('Conexión pendiente','Revisa el acceso a la base de datos')+'<div class="notice bad">'+safe(e.message)+'</div>'}}
 function render(){if(!profile||profile.role==='PENDIENTE')return;const m={dashboard:dashboard,inventory:inventory,transfers:transferView,reports:reports,alerts:alertView,masters:masters};$('#content').innerHTML=page.startsWith('process_')?operations():(m[page]||dashboard)();bindPage()}
 const kpi=(title,value,icon,note)=>'<div class="card"><div class="spread"><span class="statName">'+safe(title)+'</span><span class="orb">'+icon+'</span></div><div class="metric">'+safe(value)+'</div><span class="small muted">'+safe(note)+'</span></div>';
 function dashboard(){let libre=assets.filter(a=>a.stock_type==='LIBRE'),inv=assets.filter(a=>a.stock_type==='INVERSA'),cons=assets.filter(a=>a.stock_type==='CONSUMIDO'),en=transfers.filter(t=>t.status==='PENDIENTE_RECEPCION');let techPending=inv.filter(a=>loc(a.location_id)?.kind==='TECNICO').length;let grp={};for(let a of assets.filter(a=>['LIBRE','INVERSA'].includes(a.stock_type))){let l=loc(a.location_id),n=l?.department_id||'OTRO';grp[n]=(grp[n]||0)+1}
@@ -143,24 +143,153 @@ function operations(){
 
 function normalizeHeader(h){return String(h||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')}
 function pick(o,...aliases){let keys=Object.keys(o),n=keys.map(normalizeHeader);for(let a of aliases){let k=n.indexOf(normalizeHeader(a));if(k>=0&&o[keys[k]]!==''&&o[keys[k]]!=null)return o[keys[k]]}return ''}
-function findLocation(name,type){if(!name)return '';let n=normalizeHeader(name);return (locations.find(x=>x.kind===type&&normalizeHeader(x.name)===n)||locations.find(x=>x.kind===type&&normalizeHeader(x.identifier)===n))?.id||''}
-function prepare(o,i){let rawSerial=val(pick(o,'serial','serial de repuesto recibido','serial de repuesto recib','serial instalado','serial retirado','numero de serie','serial del repuesto','serial equipo'));
-let evt=val(pick(o,'inventoryid','inventory id','id inventario','event_id','identificador evento'));
-let generic=['','SINPERFILDESERIE','SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(rawSerial.toUpperCase());
-let serial=generic&&kind==='RETIRO'&&evt?'INV-'+evt.replace(/[^a-zA-Z0-9_-]/g,'').toUpperCase() :rawSerial;
-let persona=pick(o,'tecnico','tecnico instalador','nombre tecnico','identificacion','cedula');
-let bod=pick(o,'bodega','bodega base','nombre_bodega','almacen');
-return {serial,sap:val(pick(o,'sap','codigo sap','codigoSAP','codigo_material','codigo del repuesto')),description:val(pick(o,'description','detalle del repuesto','descripcion')),category:val(pick(o,'category','categoria del repuesto')),sap_center:val(pick(o,'sap_center','centro')),sap_warehouse:val(pick(o,'sap_warehouse','bodega sap')),physical_condition:val(pick(o,'physical_condition','estado de recepcion del repuesto','estado fisico'))||'BUENO',profile_type:val(pick(o,'profile_type','perfil'))||'SIN PERFIL',reception:/remanu/i.test(String(pick(o,'reception','tipo de recepcion')))?'Remanufacturado':'Nuevo',stock_type:val(pick(o,'stock_type','stock'))||'LIBRE',serial_kind:generic?'GENERICO':'FISICO',date:dateVal(pick(o,'date','fecha de recepcion','fecha de asignacion','fecha','fecha instalacion','fecha desinstalacion')),bodega_id:findLocation(bod,'BODEGA')||window.defaultBod||'',tech_id:findLocation(persona,'TECNICO')||window.defaultTec||'',document:val(pick(o,'document','documento ingreso','documento')),supplier:val(pick(o,'supplier','proveedor','proovedor')),ot:val(pick(o,'ot','orden','orden_de_trabajo','orden de trabajo','orden trabajo')),site:val(pick(o,'site','codnodo','id sitio','id del sitio','id_sitio','idcentrodigital')),event_id:evt,reason:val(pick(o,'reason','motivo')),source_person:val(persona),_idx:i+1}}
-function precheck(r){if(!r.serial||['SINPERFILDESERIE','SIN PERFIL DE SERIE'].includes(r.serial.toUpperCase()))return 'Serial por identificar';if(['CARGA_INICIAL','INGRESO'].includes(kind)&&!r.sap)return 'Falta código SAP';if(['CARGA_INICIAL','INGRESO','DEVOLUCION'].includes(kind)&&!r.bodega_id&&!r.tech_id)return 'Seleccionar destino';if(['DESPACHO','RETIRO'].includes(kind)&&!r.tech_id)return 'Falta técnico';if(['DEVOLUCION'].includes(kind)&&!r.bodega_id)return 'Falta bodega';return ''}
-function preview(){if(!rows.length)return empty('Aún no has cargado datos','Descarga la plantilla o importa cualquiera de los Excel de Claro. También puedes agregar filas.');let count=rows.filter(precheck).length;let chunk=rows.slice(previewPage*30,(previewPage+1)*30);return '<div class="spread wrap"><span class="pill '+(count?'warn':'')+'">'+count+' fila(s) para revisar</span><div class="row"><button id="pPrev" class="btn outline small" '+(!previewPage?'disabled':'')+'>Anterior</button><span class="small muted">Página '+(previewPage+1)+' de '+Math.ceil(rows.length/30)+'</span><button id="pNext" class="btn outline small" '+((previewPage+1)*30>=rows.length?'disabled':'')+'>Siguiente</button></div></div>'+
-'<div class="tablewrap" style="margin-top:12px"><table class="table"><thead><tr><th># / Estado</th><th>Serial</th><th>SAP</th><th>Técnico</th><th>Bodega</th><th>Fecha</th><th>OT</th><th>Sitio</th><th>Tipo recepción</th><th>Estado físico</th><th>Centro SAP</th><th>Bodega SAP</th><th></th></tr></thead><tbody>'+
-chunk.map((r,ix)=>{let idx=previewPage*30+ix;return '<tr><td>'+r._idx+'<div class="micro '+(precheck(r)?'':'muted')+'" style="color:'+(precheck(r)?'#b34c38':'#14816b')+'">'+safe(precheck(r)||'Listo')+'</div></td>'+
-'<td class="wide"><input data-edit="'+idx+'" data-key="serial" value="'+safe(r.serial)+'"></td><td><input data-edit="'+idx+'" data-key="sap" value="'+safe(r.sap)+'"></td>'+
-'<td><select data-edit="'+idx+'" data-key="tech_id">'+opts(tecs(),r.tech_id,'Sin técnico')+'</select>'+(r.source_person?'<div class="micro muted">'+safe(r.source_person)+'</div>':'')+'</td>'+
-'<td><select data-edit="'+idx+'" data-key="bodega_id">'+opts(bds(),r.bodega_id,'Sin bodega')+'</select></td>'+
-'<td><input type="date" data-edit="'+idx+'" data-key="date" value="'+safe(r.date)+'"></td><td><input data-edit="'+idx+'" data-key="ot" value="'+safe(r.ot)+'"></td><td><input data-edit="'+idx+'" data-key="site" value="'+safe(r.site)+'"></td>'+
-'<td><select data-edit="'+idx+'" data-key="reception"><option '+(r.reception==='Nuevo'?'selected':'')+'>Nuevo</option><option '+(r.reception==='Remanufacturado'?'selected':'')+'>Remanufacturado</option></select></td><td><input data-edit="'+idx+'" data-key="physical_condition" value="'+safe(r.physical_condition)+'"></td><td><input data-edit="'+idx+'" data-key="sap_center" value="'+safe(r.sap_center)+'"></td><td><input data-edit="'+idx+'" data-key="sap_warehouse" value="'+safe(r.sap_warehouse)+'"></td><td><button class="btn outline small" data-remove="'+idx+'">✕</button></td></tr>'}).join('')+
-'</tbody></table></div><div class="help" style="margin-top:10px">Puedes editar cada fila. Si necesitas modificar más campos, ajústalos en la plantilla Excel antes de cargarla. En CONSUMOS, un serial sin correspondencia debe corregirse contra el inventario real.</div>'}
+
+function findLocation(name,type){
+ if(!name)return '';
+ const n=normalizeHeader(name);
+ return (locations.find(x=>x.kind===type&&(
+   normalizeHeader(x.name)===n||normalizeHeader(x.identifier)===n||x.id===name
+ )))?.id||'';
+}
+function prepare(o,i){
+ const rawSerial=val(pick(o,'serial','serial de repuesto recibido','serial de repuesto recib','serial instalado','serial retirado','numero de serie','serial del repuesto','serial equipo'));
+ const evt=val(pick(o,'inventoryid','inventory id','id inventario','event_id','identificador evento'));
+ const generic=['','SINPERFILDESERIE','SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(rawSerial.toUpperCase());
+ const serial=generic&&kind==='RETIRO'&&evt?'INV-'+evt.replace(/[^a-zA-Z0-9_-]/g,'').toUpperCase():rawSerial;
+ const source_person=val(pick(o,'tecnico','tecnico instalador','nombre tecnico','identificacion','cedula','tech_id'));
+ const source_bodega=val(pick(o,'bodega','bodega base','nombre_bodega','almacen'));
+ let bodega_id=findLocation(source_bodega,'BODEGA');
+ let tech_id=findLocation(source_person,'TECNICO');
+ if(kind==='INGRESO'){tech_id='';if(!source_bodega)bodega_id=window.defaultBod||'';}
+ if(kind==='CARGA_INICIAL'&&!source_bodega&&!source_person){
+  if(window.initialTarget==='TECNICO')tech_id=window.defaultTec||'';
+  else bodega_id=window.defaultBod||'';
+ }
+ if(kind==='DEVOLUCION'&&!source_bodega)bodega_id=window.defaultBod||'';
+ if(['DESPACHO','CONSUMO','RETIRO'].includes(kind)&&!source_person)tech_id=window.defaultTec||'';
+ let serial_kind=val(pick(o,'serial_kind','tipo de serial','identificacion serial')).toUpperCase();
+ if(!['GENERICO','FISICO'].includes(serial_kind))serial_kind=generic?'GENERICO':'FISICO';
+ return {
+  serial,sap:val(pick(o,'sap','codigo sap','codigoSAP','codigo_material','codigo del repuesto')),
+  description:val(pick(o,'description','detalle del repuesto','descripcion')),
+  category:val(pick(o,'category','categoria del repuesto')),
+  sap_center:val(pick(o,'sap_center','centro')),
+  sap_warehouse:val(pick(o,'sap_warehouse','bodega sap')),
+  physical_condition:val(pick(o,'physical_condition','estado de recepcion del repuesto','estado fisico'))||'BUENO',
+  profile_type:val(pick(o,'profile_type','perfil'))||'SIN PERFIL DE SERIE',
+  reception:/remanu/i.test(String(pick(o,'reception','tipo de recepcion')))?'Remanufacturado':'Nuevo',
+  stock_type:val(pick(o,'stock_type','stock'))||'LIBRE',
+  serial_kind,date:dateVal(pick(o,'date','fecha de recepcion','fecha de asignacion','fecha','fecha instalacion','fecha desinstalacion')),
+  bodega_id,tech_id,document:val(pick(o,'document','documento ingreso','documento')),
+  supplier:val(pick(o,'supplier','proveedor','proovedor')),
+  ot:val(pick(o,'ot','orden','orden_de_trabajo','orden de trabajo','orden trabajo')),
+  site:val(pick(o,'site','codnodo','id sitio','id del sitio','id_sitio','idcentrodigital')),
+  event_id:evt,reason:val(pick(o,'reason','motivo')).toUpperCase(),
+  source_person,source_bodega,_idx:i+1
+ };
+}
+function duplicateSerials(){
+ const seen=new Set(),duplicates=new Set();
+ for(const row of rows){const s=val(row.serial).toUpperCase();if(s){if(seen.has(s))duplicates.add(s);else seen.add(s);}}
+ return duplicates;
+}
+function precheck(r,duplicates){
+ const serial=val(r.serial).toUpperCase();
+ if(!serial||['SINPERFILDESERIE','SIN PERFIL DE SERIE','N/A','NA'].includes(serial))return 'Serial sin identificar';
+ if(duplicates?.has(serial))return 'Serial repetido en archivo';
+ const a=assetsBySerial.get(serial);
+ if(kind==='INGRESO'||kind==='CARGA_INICIAL'){
+  if(a)return 'Serial ya existe en PULSO';
+  if(!r.sap)return 'Falta código SAP';
+  if(kind==='INGRESO'&&!r.bodega_id)return 'Seleccionar bodega de recepción';
+  if(kind==='CARGA_INICIAL'&&(!r.bodega_id&&!r.tech_id||r.bodega_id&&r.tech_id))return 'Debe tener solo una custodia';
+  if(r.source_bodega&&!findLocation(r.source_bodega,'BODEGA'))return 'Bodega de Excel no reconocida';
+  if(kind==='CARGA_INICIAL'&&r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico de Excel no reconocido';
+  if(!['LIBRE','INVERSA'].includes(r.stock_type))return 'Inventario no válido';
+  return '';
+ }
+ if(kind==='DESPACHO'){
+  if(!r.tech_id)return 'Selecciona técnico receptor';
+  if(r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico no reconocido';
+  if(!a)return 'Serial no existe';
+  if(a.stock_type!=='LIBRE'||a.state!=='DISPONIBLE'||loc(a.location_id)?.kind!=='BODEGA')return 'No disponible en bodega';
+ }
+ if(kind==='CONSUMO'){
+  if(!a)return 'Serial no existe en PULSO';
+  if(a.stock_type!=='LIBRE'||a.state!=='ASIGNADO')return 'No es LIBRE asignado';
+  if(r.tech_id&&a.location_id!==r.tech_id)return 'Asignado a otro técnico';
+  if(r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico no reconocido';
+ }
+ if(kind==='RETIRO'){
+  if(!r.tech_id)return 'Selecciona técnico que retiró';
+  if(r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico no reconocido';
+  if(!a&&!r.sap)return 'Falta SAP del equipo nuevo';
+  if(a&&a.stock_type!=='CONSUMIDO')return 'Serial existente: revisar su historial';
+ }
+ if(kind==='DEVOLUCION'){
+  if(!a)return 'Serial no existe';
+  if(loc(a.location_id)?.kind!=='TECNICO')return 'El equipo no está en custodia de técnico';
+  if(!r.bodega_id)return 'Selecciona bodega receptora';
+  if(!['NO UTILIZADO','GARANTIA','DESMONTE'].includes(r.reason))return 'Selecciona motivo';
+ }
+ if(kind==='PREALERTA'&&(!a||a.stock_type!=='INVERSA'||a.state!=='EN_BODEGA'))return 'No está disponible en INVERSA de bodega';
+ if(kind==='RECOLECCION'&&(!a||a.stock_type!=='INVERSA'||a.state!=='PREALERTADO'))return 'No está prealertado';
+ return '';
+}
+const previewColumns={
+ CARGA_INICIAL:['serial','sap','description','category','profile_type','serial_kind','reception','lot','stock_type','physical_condition','date','bodega_id','tech_id','sap_center','sap_warehouse','document','supplier'],
+ INGRESO:['serial','sap','description','category','profile_type','serial_kind','reception','lot','physical_condition','date','bodega_id','sap_center','sap_warehouse','document','supplier'],
+ DESPACHO:['serial','date','tech_id'],
+ CONSUMO:['serial','tech_id','date','ot','site','event_id'],
+ RETIRO:['serial','sap','description','serial_kind','tech_id','date','ot','site','event_id'],
+ DEVOLUCION:['serial','bodega_id','date','reason'],
+ PREALERTA:['serial','date','document'],
+ RECOLECCION:['serial','date','document']
+};
+const previewLabels={
+ serial:'Serial',sap:'Código SAP',description:'Detalle del repuesto',category:'Categoría',profile_type:'Perfil',
+ serial_kind:'Tipo de serial',reception:'Tipo recepción',lot:'Lote (automático)',stock_type:'Inventario',
+ physical_condition:'Estado físico',date:'Fecha',bodega_id:'Bodega',tech_id:'Técnico',
+ sap_center:'Centro SAP',sap_warehouse:'Bodega SAP',document:'Documento',supplier:'Proveedor',
+ ot:'Orden de trabajo',site:'ID del sitio',event_id:'ID Claro',reason:'Motivo'
+};
+function previewField(r,idx,key){
+ const cell=(html)=>'<td>'+html+'</td>';
+ if(key==='lot')return cell('<span class="pill gray">'+(r.reception==='Nuevo'?'VALORADO':'NOVALORADO')+'</span>');
+ if(key==='tech_id')return cell('<select data-edit="'+idx+'" data-key="tech_id">'+opts(tecs(),r.tech_id,'Selecciona técnico')+'</select>'+(r.source_person?'<div class="micro muted">'+safe(r.source_person)+'</div>':''));
+ if(key==='bodega_id')return cell('<select data-edit="'+idx+'" data-key="bodega_id">'+opts(bds(),r.bodega_id,'Selecciona bodega')+'</select>'+(r.source_bodega?'<div class="micro muted">'+safe(r.source_bodega)+'</div>':''));
+ const selects={
+  reception:['Nuevo','Remanufacturado'],
+  serial_kind:['FISICO','GENERICO'],stock_type:['LIBRE','INVERSA'],
+  reason:['NO UTILIZADO','GARANTIA','DESMONTE']
+ };
+ if(selects[key])return cell('<select data-edit="'+idx+'" data-key="'+key+'">'+
+  (key==='reason'?'<option value="">Seleccionar motivo</option>':'')+
+  selects[key].map(v=>'<option value="'+v+'" '+(r[key]===v?'selected':'')+'>'+safe(v)+'</option>').join('')+'</select>');
+ if(key==='date')return cell('<input type="date" data-edit="'+idx+'" data-key="date" value="'+safe(r.date)+'">');
+ return cell('<input data-edit="'+idx+'" data-key="'+key+'" value="'+safe(r[key])+'" style="min-width:'+(['description','serial','supplier'].includes(key)?'175':'105')+'px">');
+}
+function preview(){
+ if(!rows.length)return empty('No hay información cargada','Descarga la plantilla de este módulo o importa un archivo Excel para iniciar la revisión.');
+ const duplicates=duplicateSerials();
+ const problems=rows.filter(r=>precheck(r,duplicates)).length;
+ const chunk=rows.slice(previewPage*30,(previewPage+1)*30);
+ const columns=previewColumns[kind]||[];
+ const head='<thead><tr><th># / Validación</th>'+columns.map(k=>'<th>'+safe(previewLabels[k])+'</th>').join('')+'<th>Quitar</th></tr></thead>';
+ const body=chunk.map((r,ix)=>{
+  let idx=previewPage*30+ix,issue=precheck(r,duplicates);
+  return '<tr><td>'+r._idx+'<div class="micro" style="color:'+(issue?'#b34c38':'#14816b')+'">'+safe(issue||'Sin alertas')+'</div></td>'+
+   columns.map(k=>previewField(r,idx,k)).join('')+
+   '<td><button class="btn outline small" data-remove="'+idx+'">✕</button></td></tr>';
+ }).join('');
+ return '<div class="spread wrap"><span class="pill '+(problems?'warn':'')+'">'+problems+' fila(s) con observaciones previas</span>'+
+ '<div class="row"><button id="pPrev" class="btn outline small" '+(!previewPage?'disabled':'')+'>Anterior</button>'+
+ '<span class="small muted">Página '+(previewPage+1)+' de '+Math.ceil(rows.length/30)+'</span>'+
+ '<button id="pNext" class="btn outline small" '+((previewPage+1)*30>=rows.length?'disabled':'')+'>Siguiente</button></div></div>'+
+ '<div class="tablewrap" style="margin-top:12px"><table class="table">'+head+'<tbody>'+body+'</tbody></table></div>'+
+ '<div class="help" style="margin-top:10px">La validación de esta vista es preliminar. La confirmación aplica todas las reglas de la base de datos y no permite guardar solo parte del lote.</div>';
+}
+
 function transferView(){let mine=assets.filter(a=>a.stock_type==='LIBRE'&&a.state==='ASIGNADO'&&loc(a.location_id)?.kind==='TECNICO'&&(staff()||a.location_id===profile.location_id));let items=transfers.filter(t=>true);return bodyHead('Transferencias supervisadas','Solo equipos LIBRE · solicitud → autorización logística → aceptación del receptor')+
  (staff()||technical()?'<div class="card stack"><strong>Nueva solicitud de transferencia</strong><div class="grid three"><label class="field">Serial LIBRE asignado<select id="transferAsset"><option value="">Seleccionar equipo</option>'+mine.map(a=>'<option value="'+safe(a.serial)+'">'+safe(a.serial)+' · '+safe(locName(a.location_id))+'</option>').join('')+'</select></label><label class="field">Técnico receptor<select id="transferDest">'+opts(tecs())+'</select></label><div class="field"><span>&nbsp;</span><button class="btn" id="requestTransfer">Solicitar aprobación →</button></div></div></div>':'')+
  '<div class="card" style="margin-top:16px"><div class="spread"><strong>Seguimiento de transferencias</strong><span class="pill gray">'+items.length+' operaciones</span></div><div class="tablewrap" style="margin-top:12px"><table class="table"><thead><tr><th>Serial</th><th>Origen</th><th>Destino</th><th>Solicitud</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>'+items.map(t=>{let a=assets.find(x=>x.id===t.asset_id);let acts='';if(staff()&&t.status==='SOLICITADA')acts+='<button class="btn small" data-action="APROBAR" data-transfer="'+t.id+'">Aprobar</button> ';if(t.status==='PENDIENTE_RECEPCION'&&(staff()&&false||profile.location_id===t.target_location))acts+='<button class="btn small" data-action="ACEPTAR" data-transfer="'+t.id+'">Recibido ✓</button> <button class="btn small danger" data-action="RECHAZAR" data-transfer="'+t.id+'">Rechazar</button> ';if(staff()&&['SOLICITADA','PENDIENTE_RECEPCION'].includes(t.status))acts+='<button class="btn small subtle" data-action="CANCELAR" data-transfer="'+t.id+'">Cancelar</button>';return '<tr><td class="strong">'+safe(a?.serial||t.asset_id)+'</td><td>'+safe(locName(t.source_location))+'</td><td>'+safe(locName(t.target_location))+'</td><td>'+iso(t.requested_at)+'</td><td>'+pill(t.status)+'</td><td>'+acts+'</td></tr>'}).join('')+'</tbody></table>'+(!items.length?empty('No hay transferencias','Los técnicos pueden crear solicitudes, no modificar saldos directamente.'):'')+'</div></div>'}
