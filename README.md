@@ -3,7 +3,7 @@ Aplicación web responsive con autenticación Supabase, control de acceso por pe
 
 ## Puesta en marcha
 - Frontend: `index.html` servido por GitHub Pages.
-- Backend: proyecto Supabase exclusivo de PULSO (`qdzkpwhtxabyqpxmqrcg`), migración en `sql/schema.sql`.
+- Backend: Supabase exclusivo de PULSO (`qdzkpwhtxabyqpxmqrcg`), migración base `sql/schema.sql` y ajuste `sql/002_campos_y_seguridad.sql`. **No ejecutar la migración base nuevamente sobre datos en producción**, ya que reinicia las tablas.
 - Roles: ADMIN, ASISTENTE, SUPERVISOR por departamento y TECNICO con ubicación individual.
 - Bodegas iniciales: Riohacha, Valledupar, Aguachica, San Andrés.
 - El administrador debe asignar su rol ADMIN en `public.actors` después de iniciar sesión con un usuario de Auth, usando SQL del panel Supabase.
@@ -14,7 +14,7 @@ Carga inicial / ingresos / despachos / consumos / retiros INVERSA / devoluciones
 Las instalaciones solo consumen un equipo previamente asignado LIBRE. Los retiros crean la obligación INVERSA y no elevan el saldo de bodega hasta su recepción física.
 
 ## Transferencias
-Solo LIBRE entre técnicos. El técnico solicita; logística aprueba; receptor acepta o rechaza. Existen notificaciones en el aplicativo y cola `email_outbox`. **Importante**: los mensajes de correo externo no se envían hasta configurar un transportador de correos y un proceso de envío. Los recordatorios de 6 horas requieren programar `pulso_send_due_alerts()` en servidor.
+Solo LIBRE entre técnicos. El técnico solicita; logística aprueba; receptor acepta o rechaza. Existen notificaciones en el aplicativo y cola `email_outbox`. **Importante**: los mensajes de correo externo no se envían hasta configurar un transportador de correos y un proceso de envío. La revisión de recordatorios quedó programada en Supabase Cron cada 5 minutos, y crea avisos al cumplirse 6 horas desde la última notificación. El correo externo requiere configurar un servicio de envío de la cola.
 
 ## Seguridad
 El frontend solo contiene una llave publicable. RLS a nivel de tablas, escrituras de inventario mediante funciones de validación transaccional. Los usuarios de consulta no pueden modificar inventarios. Registrar usuarios por el panel Auth y asignarles rol desde el módulo de administración.
