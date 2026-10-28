@@ -105,17 +105,29 @@ function inventory(){const visible=assets.filter(a=>(!q||[a.serial,a.sap,a.descr
 const kindLabels={CARGA_INICIAL:'Carga inicial',INGRESO:'Ingresos desde cliente',DESPACHO:'Despacho bodega → técnico',CONSUMO:'Consumos instalados Claro',RETIRO:'Retiros / desmontes Claro',DEVOLUCION:'Devolución a bodega',PREALERTA:'Prealerta INVERSA',RECOLECCION:'Recolección del cliente'};
 
 const templates={
- CARGA_INICIAL:[{serial:'SERIAL-EJEMPLO-001',sap:'4060278',description:'BATERÍA',category:'BATERÍAS',profile_type:'SIN PERFIL DE SERIE',serial_kind:'FISICO',reception:'Nuevo',stock_type:'LIBRE',physical_condition:'BUENO',date:'2026-10-28',bodega:'Riohacha',tecnico:'',document:'CORTE-INICIAL',supplier:'',sap_center:'C903',sap_warehouse:'U020'}],
- INGRESO:[{serial:'SERIAL-EJEMPLO-001',sap:'4060278',description:'BATERÍA',category:'BATERÍAS',profile_type:'SIN PERFIL DE SERIE',serial_kind:'FISICO',reception:'Nuevo',physical_condition:'BUENO',date:'2026-10-28',bodega:'Riohacha',sap_center:'C903',sap_warehouse:'U020',document:'DOC-001',supplier:'LOGYTECH'}],
- DESPACHO:[{serial:'SERIAL-EJEMPLO-001',date:'2026-10-28',tecnico:'Nombre exacto del técnico'}],
- CONSUMO:[{serial:'SERIAL-EJEMPLO-001',date:'2026-10-28',inventoryid:'123456',ot:'OT-123',site:'ID-SITIO',tecnico:'Nombre exacto del técnico'}],
- RETIRO:[{serial:'SERIAL-EJEMPLO-002',sap:'4060278',description:'EQUIPO RETIRADO',inventoryid:'987654',date:'2026-10-28',ot:'OT-123',site:'ID-SITIO',tecnico:'Nombre exacto del técnico'}],
- DEVOLUCION:[{serial:'SERIAL-EJEMPLO-002',bodega:'Riohacha',date:'2026-10-28',reason:'DESMONTE'}],
- PREALERTA:[{serial:'SERIAL-EJEMPLO-002',date:'2026-10-28',document:'PRE-001'}],
- RECOLECCION:[{serial:'SERIAL-EJEMPLO-002',date:'2026-10-28',document:'ENTREGA-001'}]
+ CARGA_INICIAL:[{
+  'Serial':'SERIAL-EJEMPLO-001','Código SAP':'4060278','Detalle del repuesto':'BATERÍA',
+  'Categoría del repuesto':'BATERÍAS','Perfil':'SIN PERFIL DE SERIE','Tipo de serial':'FISICO',
+  'Tipo de recepción':'Nuevo','Inventario':'LIBRE','Estado físico':'BUENO',
+  'Fecha de recepción':'2026-10-28','Bodega':'Riohacha','Documento de ingreso':'CORTE-INICIAL',
+  'Proveedor':'','Centro SAP':'C903','Bodega SAP':'U020'
+ }],
+ INGRESO:[{
+  'Serial':'SERIAL-EJEMPLO-001','Código SAP':'4060278','Detalle del repuesto':'BATERÍA',
+  'Categoría del repuesto':'BATERÍAS','Perfil':'SIN PERFIL DE SERIE','Tipo de serial':'FISICO',
+  'Tipo de recepción':'Nuevo','Estado físico':'BUENO','Fecha de recepción':'2026-10-28',
+  'Bodega':'Riohacha','Centro SAP':'C903','Bodega SAP':'U020',
+  'Documento de ingreso':'DOC-001','Proveedor':'LOGYTECH'
+ }],
+ DESPACHO:[{'Serial':'SERIAL-EJEMPLO-001','Fecha de asignación':'2026-10-28','Técnico':'Nombre exacto del técnico'}],
+ CONSUMO:[{'Serial':'SERIAL-EJEMPLO-001','Fecha de instalación':'2026-10-28','ID Claro':'123456','OT':'OT-123','ID del sitio':'ID-SITIO','Técnico':'Nombre exacto del técnico'}],
+ RETIRO:[{'Serial':'SERIAL-EJEMPLO-002','Código SAP':'4060278','Detalle del repuesto':'EQUIPO RETIRADO','ID Claro':'987654','Fecha de retiro':'2026-10-28','OT':'OT-123','ID del sitio':'ID-SITIO','Técnico':'Nombre exacto del técnico'}],
+ DEVOLUCION:[{'Serial':'SERIAL-EJEMPLO-002','Bodega':'Riohacha','Fecha de devolución':'2026-10-28','Motivo':'DESMONTE'}],
+ PREALERTA:[{'Serial':'SERIAL-EJEMPLO-002','Fecha de prealerta':'2026-10-28','Documento':'PRE-001'}],
+ RECOLECCION:[{'Serial':'SERIAL-EJEMPLO-002','Fecha de recolección':'2026-10-28','Documento':'ENTREGA-001'}]
 };
 const kindDetails={
- CARGA_INICIAL:{title:'Carga inicial',subtitle:'Carga las existencias iniciales de cada bodega y cada técnico, diferenciando LIBRE e INVERSA.',tip:'Cada fila corresponde a una unidad. Indica una bodega o un técnico como custodio, nunca ambos. Puedes cargar archivos separados por custodio.'},
+ CARGA_INICIAL:{title:'Carga inicial',subtitle:'Registra todo el inventario inicial en las bodegas físicas. Después utiliza Despachos para reconstruir las asignaciones que ya fueron realizadas a técnicos.',tip:'Cada serial entra primero a su bodega de origen, ya sea LIBRE o INVERSA. No se solicita técnico. Los equipos ya entregados a técnicos se asignarán después desde Despachos.'},
  INGRESO:{title:'Ingresos desde cliente',subtitle:'Recepción de equipos nuevos y remanufacturados en bodegas físicas.',tip:'No necesitas registrar técnico, OT ni sitio. La recepción determina el lote automáticamente: Nuevo → VALORADO; Remanufacturado → NOVALORADO.'},
  DESPACHO:{title:'Despachos a técnicos',subtitle:'Asigna equipos LIBRE disponibles desde una bodega al inventario de un técnico.',tip:'Solo necesitas el serial, la fecha y el técnico receptor. PULSO busca la bodega y el código SAP del equipo.'},
  CONSUMO:{title:'Consumos instalados',subtitle:'Conciliación de instalaciones reportadas en el aplicativo de Claro.',tip:'Solo se consumen seriales LIBRE asignados a técnicos. OT, sitio e inventoryid identifican la instalación.'},
@@ -128,11 +140,11 @@ function operations(){
  if(!staff())return empty('Sin acceso','Operaciones exclusivas de logística.');
  const conf=kindDetails[kind],isInitial=kind==='CARGA_INICIAL';
  const bodNeeded=['CARGA_INICIAL','INGRESO','DEVOLUCION'].includes(kind);
- const techNeeded=['CARGA_INICIAL','DESPACHO','CONSUMO','RETIRO'].includes(kind);
+ const techNeeded=['DESPACHO','CONSUMO','RETIRO'].includes(kind);
  let targets='';
- if(isInitial)targets='<label class="field">Tipo de custodio del lote<select id="initialTarget"><option value="BODEGA" '+(window.initialTarget!=='TECNICO'?'selected':'')+'>Bodega física</option><option value="TECNICO" '+(window.initialTarget==='TECNICO'?'selected':'')+'>Técnico</option></select></label>';
- if(bodNeeded&&(!isInitial||window.initialTarget!=='TECNICO'))targets+='<label class="field">Bodega de recepción<select id="defaultBod">'+opts(bds(),window.defaultBod||'','Seleccionar bodega')+'</select></label>';
- if(techNeeded&&(!isInitial||window.initialTarget==='TECNICO'))targets+='<label class="field">Técnico'+(isInitial?' responsable':' (para filas sin técnico)')+'<select id="defaultTec">'+opts(tecs(),window.defaultTec||'','Seleccionar técnico')+'</select></label>';
+
+ if(bodNeeded)targets+='<label class="field">Bodega de recepción<select id="defaultBod">'+opts(bds(),window.defaultBod||'','Seleccionar bodega')+'</select></label>';
+ if(techNeeded)targets+='<label class="field">Técnico'+(isInitial?' responsable':' (para filas sin técnico)')+'<select id="defaultTec">'+opts(tecs(),window.defaultTec||'','Seleccionar técnico')+'</select></label>';
  return bodyHead(conf.title,conf.subtitle)+
  '<div class="card stack"><div class="spread wrap"><div><div class="eyebrow">PASO 1 · PREPARACIÓN</div><strong>Plantilla exclusiva de '+safe(conf.title.toLowerCase())+'</strong></div><span class="pill">Proceso independiente</span></div>'+
  '<div class="grid three">'+targets+'<div class="field"><span>Archivo de Excel</span><div class="row wrap"><button class="btn outline" id="downloadTemplate">↓ Descargar plantilla</button><label class="btn subtle" style="cursor:pointer">↑ Cargar Excel<input id="upload" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label></div></div></div>'+
@@ -153,7 +165,7 @@ function findLocation(name,type){
 }
 function prepare(o,i){
  const rawSerial=val(pick(o,'serial','serial de repuesto recibido','serial de repuesto recib','serial instalado','serial retirado','numero de serie','serial del repuesto','serial equipo'));
- const evt=val(pick(o,'inventoryid','inventory id','id inventario','event_id','identificador evento'));
+ const evt=val(pick(o,'inventoryid','inventory id','id inventario','id claro','event_id','identificador evento'));
  const generic=['','SINPERFILDESERIE','SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(rawSerial.toUpperCase());
  const serial=generic&&kind==='RETIRO'&&evt?'INV-'+evt.replace(/[^a-zA-Z0-9_-]/g,'').toUpperCase():rawSerial;
  const source_person=val(pick(o,'tecnico','tecnico instalador','nombre tecnico','identificacion','cedula','tech_id'));
@@ -161,9 +173,9 @@ function prepare(o,i){
  let bodega_id=findLocation(source_bodega,'BODEGA');
  let tech_id=findLocation(source_person,'TECNICO');
  if(kind==='INGRESO'){tech_id='';if(!source_bodega)bodega_id=window.defaultBod||'';}
- if(kind==='CARGA_INICIAL'&&!source_bodega&&!source_person){
-  if(window.initialTarget==='TECNICO')tech_id=window.defaultTec||'';
-  else bodega_id=window.defaultBod||'';
+ if(kind==='CARGA_INICIAL'){
+  tech_id='';
+  if(!source_bodega)bodega_id=window.defaultBod||'';
  }
  if(kind==='DEVOLUCION'&&!source_bodega)bodega_id=window.defaultBod||'';
  if(['DESPACHO','CONSUMO','RETIRO'].includes(kind)&&!source_person)tech_id=window.defaultTec||'';
@@ -173,13 +185,13 @@ function prepare(o,i){
   serial,sap:val(pick(o,'sap','codigo sap','codigoSAP','codigo_material','codigo del repuesto')),
   description:val(pick(o,'description','detalle del repuesto','descripcion')),
   category:val(pick(o,'category','categoria del repuesto')),
-  sap_center:val(pick(o,'sap_center','centro')),
+  sap_center:val(pick(o,'sap_center','centro','centro sap')),
   sap_warehouse:val(pick(o,'sap_warehouse','bodega sap')),
   physical_condition:val(pick(o,'physical_condition','estado de recepcion del repuesto','estado fisico'))||'BUENO',
   profile_type:val(pick(o,'profile_type','perfil'))||'SIN PERFIL DE SERIE',
   reception:/remanu/i.test(String(pick(o,'reception','tipo de recepcion')))?'Remanufacturado':'Nuevo',
-  stock_type:val(pick(o,'stock_type','stock'))||'LIBRE',
-  serial_kind,date:dateVal(pick(o,'date','fecha de recepcion','fecha de asignacion','fecha','fecha instalacion','fecha desinstalacion')),
+  stock_type:val(pick(o,'stock_type','stock','inventario'))||'LIBRE',
+  serial_kind,date:dateVal(pick(o,'date','fecha de recepcion','fecha de asignacion','fecha','fecha instalacion','fecha desinstalacion','fecha de retiro','fecha de devolucion','fecha de prealerta','fecha de recoleccion')),
   bodega_id,tech_id,document:val(pick(o,'document','documento ingreso','documento')),
   supplier:val(pick(o,'supplier','proveedor','proovedor')),
   ot:val(pick(o,'ot','orden','orden_de_trabajo','orden de trabajo','orden trabajo')),
@@ -202,9 +214,10 @@ function precheck(r,duplicates){
   if(a)return 'Serial ya existe en PULSO';
   if(!r.sap)return 'Falta código SAP';
   if(kind==='INGRESO'&&!r.bodega_id)return 'Seleccionar bodega de recepción';
-  if(kind==='CARGA_INICIAL'&&(!r.bodega_id&&!r.tech_id||r.bodega_id&&r.tech_id))return 'Debe tener solo una custodia';
+  if(kind==='CARGA_INICIAL'&&!r.bodega_id)return 'Selecciona la bodega de origen';
+  if(kind==='CARGA_INICIAL'&&r.tech_id)return 'Carga inicial solo admite bodegas';
   if(r.source_bodega&&!findLocation(r.source_bodega,'BODEGA')&&!r.bodega_id)return 'Bodega de Excel no reconocida';
-  if(kind==='CARGA_INICIAL'&&r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico de Excel no reconocido';
+  
   if(!['LIBRE','INVERSA'].includes(r.stock_type))return 'Inventario no válido';
   return '';
  }
@@ -237,7 +250,7 @@ function precheck(r,duplicates){
  return '';
 }
 const previewColumns={
- CARGA_INICIAL:['serial','sap','description','category','profile_type','serial_kind','reception','lot','stock_type','physical_condition','date','bodega_id','tech_id','sap_center','sap_warehouse','document','supplier'],
+ CARGA_INICIAL:['serial','sap','description','category','profile_type','serial_kind','reception','lot','stock_type','physical_condition','date','bodega_id','sap_center','sap_warehouse','document','supplier'],
  INGRESO:['serial','sap','description','category','profile_type','serial_kind','reception','lot','physical_condition','date','bodega_id','sap_center','sap_warehouse','document','supplier'],
  DESPACHO:['serial','date','tech_id'],
  CONSUMO:['serial','tech_id','date','ot','site','event_id'],
@@ -307,8 +320,8 @@ function bindPage(){
  if($('#q'))$('#q').oninput=e=>{q=e.target.value;let pos=e.target.selectionStart;render();let input=$('#q');input.focus();input.setSelectionRange(pos,pos)};
  if($('#stock'))$('#stock').onchange=e=>{stockFilter=e.target.value;render()};
  if($('#locFilter'))$('#locFilter').onchange=e=>{locFilter=e.target.value;render()};
- if($('#initialTarget'))$('#initialTarget').onchange=e=>{window.initialTarget=e.target.value;render()};
- if($('#defaultBod'))$('#defaultBod').onchange=e=>{window.defaultBod=e.target.value;rows.forEach(r=>{if(!r.bodega_id&&!(kind==='CARGA_INICIAL'&&r.tech_id))r.bodega_id=e.target.value});render()};
+ 
+ if($('#defaultBod'))$('#defaultBod').onchange=e=>{window.defaultBod=e.target.value;rows.forEach(r=>{if(!r.bodega_id)r.bodega_id=e.target.value});render()};
  if($('#defaultTec'))$('#defaultTec').onchange=e=>{window.defaultTec=e.target.value;rows.forEach(r=>{if(!r.tech_id&&!(kind==='CARGA_INICIAL'&&r.bodega_id))r.tech_id=e.target.value});render()};
  if($('#downloadTemplate'))$('#downloadTemplate').onclick=downloadTemplate;
  if($('#upload'))$('#upload').onchange=importFile;
@@ -328,7 +341,7 @@ function bindPage(){
  if($('#newLocation'))$('#newLocation').onclick=addLocation;
  document.querySelectorAll('[data-user-save]').forEach(el=>el.onclick=()=>saveActor(el.dataset.userSave));
 }
-function downloadTemplate(){if(!window.XLSX){toast('No se cargó el módulo Excel. Revisa tu conexión.',true);return}let wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(templates[kind]),'PULSO_'+kind);XLSX.writeFile(wb,'PULSO_'+kind+'.xlsx')}
+function downloadTemplate(){if(!window.XLSX){toast('No se cargó el módulo Excel. Revisa tu conexión.',true);return}let wb=XLSX.utils.book_new();let sheet=XLSX.utils.json_to_sheet(templates[kind]);sheet['!cols']=Object.keys(templates[kind][0]).map(k=>({wch:Math.min(36,Math.max(17,k.length+3))}));XLSX.utils.book_append_sheet(wb,sheet,kindDetails[kind].title.slice(0,31));XLSX.writeFile(wb,'PULSO_Plantilla_'+kindDetails[kind].title.replaceAll(' ','_')+'.xlsx')}
 async function importFile(e){try{if(!window.XLSX)throw Error('No se cargó el lector Excel');let f=e.target.files[0];if(!f)return;let buf=await f.arrayBuffer(),wb=XLSX.read(buf,{type:'array',cellDates:false}),sheet=wb.Sheets[wb.SheetNames[0]],data=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:true});if(!data.length)throw Error('El archivo no contiene registros');if(data.length>2000)throw Error('Máximo 2000 filas por lote');rows=data.map(prepare);previewPage=0;render();toast(rows.length+' filas cargadas. Valida antes de almacenar.')}catch(err){toast(err.message,true)}}
 async function saveBatch(){try{if(!rows.length)throw Error('No hay registros');let errorRow=rows.findIndex(precheck);if(errorRow>=0)throw Error('Revisa la fila '+(errorRow+1)+': '+precheck(rows[errorRow]));let names=rows.map(r=>r.serial.toUpperCase());if(new Set(names).size!==names.length)throw Error('Hay seriales repetidos en el mismo lote');if(!confirm('¿Confirmar '+rows.length+' movimientos? La operación se registrará en PULSO.'))return;const clean=rows.map(r=>{let o={...r};delete o._idx;delete o.source_person;return o});const {data,error}=await db.rpc('pulso_process_batch',{p_kind:kind,p_rows:clean});if(error)throw Error(error.message);toast('✓ Procesados: '+data.processed+' · Omitidos por repetición: '+data.skipped);rows=[];await refresh()}catch(err){toast(err.message,true)}}
 async function requestTransfer(){let serial=$('#transferAsset').value,target=$('#transferDest').value;if(!serial||!target){toast('Selecciona serial y técnico receptor',true);return}const {error}=await db.rpc('pulso_request_transfer',{p_serial:serial,p_target:target});if(error)toast(error.message,true);else{toast('Solicitud enviada a logística');await refresh()}}
