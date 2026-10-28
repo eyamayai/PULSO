@@ -26,7 +26,7 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const html = fs.readFileSync('index.html','utf8');
-          const script = html.match(/<script>([\\s\\S]*?)<\\/script>/);
+          const script = html.match(/<script>([\s\S]*?)<\/script>/);
           if (!script) throw new Error('No se encontró el script principal');
           fs.writeFileSync('/tmp/pulso-app.js',script[1]);
           NODE
