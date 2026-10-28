@@ -203,14 +203,14 @@ function precheck(r,duplicates){
   if(!r.sap)return 'Falta código SAP';
   if(kind==='INGRESO'&&!r.bodega_id)return 'Seleccionar bodega de recepción';
   if(kind==='CARGA_INICIAL'&&(!r.bodega_id&&!r.tech_id||r.bodega_id&&r.tech_id))return 'Debe tener solo una custodia';
-  if(r.source_bodega&&!findLocation(r.source_bodega,'BODEGA'))return 'Bodega de Excel no reconocida';
-  if(kind==='CARGA_INICIAL'&&r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico de Excel no reconocido';
+  if(r.source_bodega&&!findLocation(r.source_bodega,'BODEGA')&&!r.bodega_id)return 'Bodega de Excel no reconocida';
+  if(kind==='CARGA_INICIAL'&&r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico de Excel no reconocido';
   if(!['LIBRE','INVERSA'].includes(r.stock_type))return 'Inventario no válido';
   return '';
  }
  if(kind==='DESPACHO'){
   if(!r.tech_id)return 'Selecciona técnico receptor';
-  if(r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico no reconocido';
+  if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
   if(!a)return 'Serial no existe';
   if(a.stock_type!=='LIBRE'||a.state!=='DISPONIBLE'||loc(a.location_id)?.kind!=='BODEGA')return 'No disponible en bodega';
  }
@@ -218,11 +218,11 @@ function precheck(r,duplicates){
   if(!a)return 'Serial no existe en PULSO';
   if(a.stock_type!=='LIBRE'||a.state!=='ASIGNADO')return 'No es LIBRE asignado';
   if(r.tech_id&&a.location_id!==r.tech_id)return 'Asignado a otro técnico';
-  if(r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico no reconocido';
+  if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
  }
  if(kind==='RETIRO'){
   if(!r.tech_id)return 'Selecciona técnico que retiró';
-  if(r.source_person&&!findLocation(r.source_person,'TECNICO'))return 'Técnico no reconocido';
+  if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
   if(!a&&!r.sap)return 'Falta SAP del equipo nuevo';
   if(a&&a.stock_type!=='CONSUMIDO')return 'Serial existente: revisar su historial';
  }
@@ -307,9 +307,9 @@ function bindPage(){
  if($('#q'))$('#q').oninput=e=>{q=e.target.value;let pos=e.target.selectionStart;render();let input=$('#q');input.focus();input.setSelectionRange(pos,pos)};
  if($('#stock'))$('#stock').onchange=e=>{stockFilter=e.target.value;render()};
  if($('#locFilter'))$('#locFilter').onchange=e=>{locFilter=e.target.value;render()};
- if($('#kind'))$('#kind').onchange=e=>{kind=e.target.value;rows=[];previewPage=0;render()};
- if($('#defaultBod'))$('#defaultBod').onchange=e=>{window.defaultBod=e.target.value;rows.forEach(r=>{if(!r.bodega_id)r.bodega_id=e.target.value})};
- if($('#defaultTec'))$('#defaultTec').onchange=e=>{window.defaultTec=e.target.value;rows.forEach(r=>{if(!r.tech_id)r.tech_id=e.target.value})};
+ if($('#initialTarget'))$('#initialTarget').onchange=e=>{window.initialTarget=e.target.value;render()};
+ if($('#defaultBod'))$('#defaultBod').onchange=e=>{window.defaultBod=e.target.value;rows.forEach(r=>{if(!r.bodega_id&&!(kind==='CARGA_INICIAL'&&r.tech_id))r.bodega_id=e.target.value});render()};
+ if($('#defaultTec'))$('#defaultTec').onchange=e=>{window.defaultTec=e.target.value;rows.forEach(r=>{if(!r.tech_id&&!(kind==='CARGA_INICIAL'&&r.bodega_id))r.tech_id=e.target.value});render()};
  if($('#downloadTemplate'))$('#downloadTemplate').onclick=downloadTemplate;
  if($('#upload'))$('#upload').onchange=importFile;
  if($('#addRow'))$('#addRow').onclick=()=>{rows.push(prepare({},rows.length));previewPage=Math.floor((rows.length-1)/30);render()};
