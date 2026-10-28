@@ -1,55 +1,23 @@
-# PULSO
+# PULSO 1.0 · Operación Logística MinTIC
+Aplicación web responsive con autenticación Supabase, control de acceso por perfil y custodia de inventario por serial.
 
-**Plataforma Unificada de Logística, Seguimiento y Operaciones**
+## Puesta en marcha
+- Frontend: `index.html` servido por GitHub Pages.
+- Backend: proyecto Supabase exclusivo de PULSO (`qdzkpwhtxabyqpxmqrcg`), migración en `sql/schema.sql`.
+- Roles: ADMIN, ASISTENTE, SUPERVISOR por departamento y TECNICO con ubicación individual.
+- Bodegas iniciales: Riohacha, Valledupar, Aguachica, San Andrés.
+- El administrador debe asignar su rol ADMIN en `public.actors` después de iniciar sesión con un usuario de Auth, usando SQL del panel Supabase.
 
-> El pulso de tu operación.
+## Flujo de movimientos
+Carga inicial / ingresos / despachos / consumos / retiros INVERSA / devoluciones / prealertas / recolección, mediante Excel y vista previa editable antes de confirmar. Todas las unidades se registran individualmente, incluso SIN PERFIL.
 
-PULSO es una aplicación web independiente para gestionar la operación logística del proyecto MinTIC. Nace desde cero con identidad, arquitectura y modelo de datos propios.
+Las instalaciones solo consumen un equipo previamente asignado LIBRE. Los retiros crean la obligación INVERSA y no elevan el saldo de bodega hasta su recepción física.
 
-## Estado actual
+## Transferencias
+Solo LIBRE entre técnicos. El técnico solicita; logística aprueba; receptor acepta o rechaza. Existen notificaciones en el aplicativo y cola `email_outbox`. **Importante**: los mensajes de correo externo no se envían hasta configurar un transportador de correos y un proceso de envío. Los recordatorios de 6 horas requieren programar `pulso_send_due_alerts()` en servidor.
 
-Versión **v0.1**: base funcional de interfaz y modelo de datos.
+## Seguridad
+El frontend solo contiene una llave publicable. RLS a nivel de tablas, escrituras de inventario mediante funciones de validación transaccional. Los usuarios de consulta no pueden modificar inventarios. Registrar usuarios por el panel Auth y asignarles rol desde el módulo de administración.
 
-Incluye:
-
-- Login visual inspirado en la identidad PULSO.
-- Navegación principal: Inicio, Ingresos, Trazabilidad y Configuración.
-- Registro local de ingresos operativos, históricos e importados.
-- Detalle por Código SAP, serial, tipo de recepción, lote y cantidad.
-- Consulta básica de trazabilidad de seriales.
-- Maestro CRUD inicial de Almacenes SAP.
-- Bodegas iniciales de Riohacha: **A221** y **U020**.
-- Centros iniciales: **C903 Costa** y **C901 Centro**.
-- Ubicaciones iniciales: Riohacha, Valledupar, Aguachica y San Andrés.
-- Esquema PostgreSQL/Supabase preparado en `supabase/schema.sql`.
-- Flujo de despliegue para GitHub Pages.
-
-## Identidad visual
-
-- Carbón: `#1F252D`
-- Verde PULSO: `#13A66B`
-- Verde profundo: `#0B5D46`
-- Naranja energía: `#F39C12`
-- Marfil claro: `#F5F1E8`
-- Títulos: **Poppins**
-- Interfaz y texto: **Inter**
-
-## Principios del modelo
-
-1. Un serial existe una sola vez como equipo, aunque pueda ingresar múltiples veces.
-2. La historia del serial se construye mediante movimientos cronológicos.
-3. Se diferencia la **fecha efectiva del evento** de la **fecha de registro en PULSO**.
-4. Los registros históricos pueden existir con información incompleta y completarse posteriormente.
-5. PULSO no obliga a inventar datos históricos desconocidos.
-6. Los maestros SAP se administran desde Configuración.
-7. Las modificaciones críticas quedarán auditadas al conectar Supabase.
-
-## Ejecución actual
-
-La interfaz funciona temporalmente con almacenamiento local del navegador para poder probar flujos sin backend. **No es todavía autenticación de producción.**
-
-El siguiente hito es conectar Supabase Auth + PostgreSQL y reemplazar el almacenamiento local por persistencia real y segura.
-
-## Publicación
-
-El repositorio contiene un workflow en `.github/workflows/pages.yml` para GitHub Pages. Una vez habilitado GitHub Pages con **GitHub Actions** como fuente, los cambios de `main` podrán desplegarse automáticamente.
+## Estado
+Primera versión funcional de estructura y flujos básicos. Debe validarse con registros reales, permisos, correo saliente, reportes Claro y pruebas de concurrencia antes de pasar a uso crítico en producción.
