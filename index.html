@@ -73,12 +73,12 @@ const processPages=[
 const draftByKind={};
 const navEntries=[['dashboard','▦','Panel general'],['inventory','◫','Inventario'],...processPages.map(([k,i,t])=>['process_'+k,i,t]),['transfers','↗','Transferencias'],['reports','▤','Informes'],['alerts','♧','Alertas'],['masters','⚙','Administración']];
 function switchPage(id){
- if(page.startsWith('process_'))draftByKind[kind]={rows,previewPage};
+ if(page.startsWith('process_'))draftByKind[kind]={rows,previewPage,fileMeta,previewTab,previewQuery,previewOnlyIssues};
  page=id;
  if(id.startsWith('process_')){
   kind=id.slice('process_'.length);
-  const draft=draftByKind[kind]||{rows:[],previewPage:0};
-  rows=draft.rows;previewPage=draft.previewPage;
+  const draft=draftByKind[kind]||{rows:[],previewPage:0,fileMeta:null,previewTab:'preview',previewQuery:'',previewOnlyIssues:false};
+  rows=draft.rows;previewPage=draft.previewPage;fileMeta=draft.fileMeta;previewTab=draft.previewTab;previewQuery=draft.previewQuery;previewOnlyIssues=draft.previewOnlyIssues;
  }
  $('#side').classList.remove('open');buildNav();render();
 }
@@ -235,7 +235,7 @@ function prepare(o,i){
   reception:/remanu/i.test(String(pick(o,'reception','tipo de recepcion')))?'Remanufacturado':'Nuevo',
   stock_type:val(pick(o,'stock_type','stock','inventario'))||'LIBRE',
   serial_kind,date:dateVal(pick(o,'date','fecha de recepcion','fecha de asignacion','fecha','fecha instalacion','fecha desinstalacion','fecha de retiro','fecha de devolucion','fecha de prealerta','fecha de recoleccion')),
-  bodega_id,tech_id,document:val(pick(o,'document','documento ingreso','documento')),
+  bodega_id,tech_id,document:val(pick(o,'document','documento de ingreso','documento ingreso','numero de documento','documento')),
   supplier:val(pick(o,'supplier','proveedor','proovedor')),
   ot:val(pick(o,'ot','orden','orden_de_trabajo','orden de trabajo','orden trabajo')),
   site:val(pick(o,'site','codnodo','id sitio','id del sitio','id_sitio','idcentrodigital')),
@@ -375,12 +375,16 @@ function bindPage(){
  if($('#defaultTec'))$('#defaultTec').onchange=e=>{window.defaultTec=e.target.value;rows.forEach(r=>{if(!r.tech_id&&!(kind==='CARGA_INICIAL'&&r.bodega_id))r.tech_id=e.target.value});render()};
  if($('#downloadTemplate'))$('#downloadTemplate').onclick=downloadTemplate;
  if($('#upload'))$('#upload').onchange=importFile;
- if($('#addRow'))$('#addRow').onclick=()=>{rows.push(prepare({},rows.length));previewPage=Math.floor((rows.length-1)/30);render()};
+ document.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{previewTab=el.dataset.tab;previewPage=0;render()});
+ if($('#previewSearch'))$('#previewSearch').oninput=e=>{previewQuery=e.target.value;previewPage=0;const pos=e.target.selectionStart;render();const el=$('#previewSearch');if(el){el.focus();el.setSelectionRange(pos,pos)}};
+ if($('#onlyIssues'))$('#onlyIssues').onchange=e=>{previewOnlyIssues=e.target.checked;previewPage=0;render()};
+ if($('#clearBatch'))$('#clearBatch').onclick=()=>{if(!confirm('¿Descartar la vista previa actual sin guardar?'))return;rows=[];fileMeta=null;previewPage=0;previewQuery='';previewTab='preview';render()};
+ if($('#cancelBatch'))$('#cancelBatch').onclick=()=>{rows=[];fileMeta=null;previewPage=0;previewQuery='';previewTab='preview';render()};
+ if($('#dropzone')){const z=$('#dropzone');z.ondragover=e=>{e.preventDefault();z.classList.add('dragover')};z.ondragleave=()=>z.classList.remove('dragover');z.ondrop=async e=>{e.preventDefault();z.classList.remove('dragover');let file=e.dataTransfer?.files?.[0];if(file)await importWorkbook(file)}};
  if($('#saveBatch'))$('#saveBatch').onclick=saveBatch;
  if($('#pPrev'))$('#pPrev').onclick=()=>{previewPage--;render()};
  if($('#pNext'))$('#pNext').onclick=()=>{previewPage++;render()};
- document.querySelectorAll('[data-edit]').forEach(el=>el.onchange=e=>{rows[Number(el.dataset.edit)][el.dataset.key]=e.target.value});
- document.querySelectorAll('[data-remove]').forEach(el=>el.onclick=()=>{rows.splice(Number(el.dataset.remove),1);previewPage=Math.min(previewPage,Math.max(0,Math.ceil(rows.length/30)-1));render()});
+ 
  if($('#requestTransfer'))$('#requestTransfer').onclick=requestTransfer;
  document.querySelectorAll('[data-transfer]').forEach(el=>el.onclick=()=>transferAction(el.dataset.transfer,el.dataset.action));
  document.querySelectorAll('[data-report]').forEach(el=>el.onchange=e=>{if(e.target.checked)reportLoc.push(el.dataset.report);else reportLoc=reportLoc.filter(x=>x!==el.dataset.report);render()});
@@ -392,8 +396,20 @@ function bindPage(){
  document.querySelectorAll('[data-user-save]').forEach(el=>el.onclick=()=>saveActor(el.dataset.userSave));
 }
 function downloadTemplate(){if(!window.XLSX){toast('No se cargó el módulo Excel. Revisa tu conexión.',true);return}let wb=XLSX.utils.book_new();let sheet=XLSX.utils.json_to_sheet(templates[kind]);sheet['!cols']=Object.keys(templates[kind][0]).map(k=>({wch:Math.min(36,Math.max(17,k.length+3))}));XLSX.utils.book_append_sheet(wb,sheet,kindDetails[kind].title.slice(0,31));XLSX.writeFile(wb,'PULSO_Plantilla_'+kindDetails[kind].title.replaceAll(' ','_')+'.xlsx')}
-async function importFile(e){try{if(!window.XLSX)throw Error('No se cargó el lector Excel');let f=e.target.files[0];if(!f)return;let buf=await f.arrayBuffer(),wb=XLSX.read(buf,{type:'array',cellDates:false}),sheet=wb.Sheets[wb.SheetNames[0]],data=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:true});if(!data.length)throw Error('El archivo no contiene registros');if(data.length>2000)throw Error('Máximo 2000 filas por lote');rows=data.map(prepare);previewPage=0;render();toast(rows.length+' filas cargadas. Valida antes de almacenar.')}catch(err){toast(err.message,true)}}
-async function saveBatch(){try{if(!rows.length)throw Error('No hay registros');let errorRow=rows.findIndex(precheck);if(errorRow>=0)throw Error('Revisa la fila '+(errorRow+1)+': '+precheck(rows[errorRow]));let names=rows.map(r=>r.serial.toUpperCase());if(new Set(names).size!==names.length)throw Error('Hay seriales repetidos en el mismo lote');if(!confirm('¿Confirmar '+rows.length+' movimientos? La operación se registrará en PULSO.'))return;const clean=rows.map(r=>{let o={...r};delete o._idx;delete o.source_person;return o});const {data,error}=await db.rpc('pulso_process_batch',{p_kind:kind,p_rows:clean});if(error)throw Error(error.message);toast('✓ Procesados: '+data.processed+' · Omitidos por repetición: '+data.skipped);rows=[];await refresh()}catch(err){toast(err.message,true)}}
+async function importFile(e){const f=e.target.files?.[0];if(f)await importWorkbook(f)}
+async function importWorkbook(f){try{
+ if(!window.XLSX)throw Error('No se cargó el lector Excel');
+ if(!/\\.(xlsx|xls|csv)$/i.test(f.name))throw Error('Solo se permiten archivos Excel o CSV');
+ if(f.size>20*1024*1024)throw Error('Tamaño máximo de archivo: 20 MB');
+ const buf=await f.arrayBuffer(),wb=XLSX.read(buf,{type:'array',cellDates:false}),sheet=wb.Sheets[wb.SheetNames[0]];
+ const data=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:true});
+ if(!data.length)throw Error('El archivo no contiene registros');
+ if(data.length>2000)throw Error('Máximo 2.000 filas por lote');
+ rows=data.map(prepare);fileMeta={name:f.name,size:f.size};
+ previewPage=0;previewTab='preview';previewQuery='';previewOnlyIssues=false;
+ render();toast(rows.length+' filas importadas para revisión. Ningún dato se ha almacenado.');
+ }catch(err){toast(err.message,true)}}
+async function saveBatch(){try{if(!rows.length)throw Error('No hay registros');const dups=duplicateSerials();let errorRow=rows.findIndex(r=>precheck(r,dups));if(errorRow>=0)throw Error('Revisa la fila '+(errorRow+2)+': '+precheck(rows[errorRow],dups));let names=rows.map(r=>r.serial.toUpperCase());if(new Set(names).size!==names.length)throw Error('Hay seriales repetidos en el mismo lote');if(!confirm('¿Confirmar '+rows.length+' movimientos? La operación se registrará en PULSO.'))return;const clean=rows.map(r=>{let o={...r};delete o._idx;delete o.source_person;delete o.source_bodega;return o});const {data,error}=await db.rpc('pulso_process_batch',{p_kind:kind,p_rows:clean});if(error)throw Error(error.message);toast('✓ Procesados: '+data.processed+' · Omitidos por repetición: '+data.skipped);rows=[];fileMeta=null;previewPage=0;previewQuery='';previewTab='preview';await refresh()}catch(err){toast(err.message,true)}}
 async function requestTransfer(){let serial=$('#transferAsset').value,target=$('#transferDest').value;if(!serial||!target){toast('Selecciona serial y técnico receptor',true);return}const {error}=await db.rpc('pulso_request_transfer',{p_serial:serial,p_target:target});if(error)toast(error.message,true);else{toast('Solicitud enviada a logística');await refresh()}}
 async function transferAction(id,action){if(!confirm('¿Confirmar '+action.toLowerCase()+' de la transferencia?'))return;let {error}=await db.rpc('pulso_transfer_action',{p_id:id,p_action:action});if(error)toast(error.message,true);else{toast('Transferencia actualizada');await refresh()}}
 function exportReport(){if(!window.XLSX){toast('Módulo Excel no disponible',true);return}let d=assets.filter(a=>!reportLoc.length||reportLoc.includes(a.location_id)).map(a=>({'Código SAP':a.sap,'Descripción':a.description,'Categoría':a.category,'Serial':a.serial,'Identificación':a.serial_kind,'Stock':a.stock_type,'Estado':a.state,'Custodia':locName(a.location_id),'Departamento':loc(a.location_id)?.department_id||'','Tipo recepción':a.reception,'Lote':a.lot,'Documento':a.source_doc,'Fecha ingreso':a.received_on}));let b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,XLSX.utils.json_to_sheet(d.length?d:[{'Sin registros':'No hay datos'}]),'Inventario');XLSX.writeFile(b,'PULSO_Informe_'+new Date().toISOString().slice(0,10)+'.xlsx')}
