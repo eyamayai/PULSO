@@ -505,7 +505,7 @@ function downloadTemplate(){if(!window.XLSX){toast('No se cargó el módulo Exce
 async function importFile(e){const f=e.target.files?.[0];if(f)await importWorkbook(f)}
 async function importWorkbook(f){try{
  if(!window.XLSX)throw Error('No se cargó el lector Excel');
- if(!/\\.(xlsx|xls|csv)$/i.test(f.name))throw Error('Solo se permiten archivos Excel o CSV');
+ if(!/\.(xlsx|xls|csv)$/i.test(String(f.name||'').trim()))throw Error('Solo se permiten archivos Excel o CSV (.xlsx, .xls, .csv)');
  if(f.size>20*1024*1024)throw Error('Tamaño máximo de archivo: 20 MB');
  const buf=await f.arrayBuffer(),wb=XLSX.read(buf,{type:'array',cellDates:false}),sheet=wb.Sheets[wb.SheetNames[0]];
  const data=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:true});
