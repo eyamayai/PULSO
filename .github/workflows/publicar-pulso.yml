@@ -31,6 +31,7 @@ jobs:
           fs.writeFileSync('/tmp/pulso-app.js',script[1]);
           NODE
           node --check /tmp/pulso-app.js
+          node --check ui/technicians.js
       - name: Preparar archivos
         uses: actions/upload-pages-artifact@v4
         with:
