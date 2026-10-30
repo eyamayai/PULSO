@@ -7,6 +7,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.0/dist/umd/supabase.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script defer src="ui/technicians.js?v=20261030-1"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
 :root{color-scheme:light;--ink:#162e2c;--sub:#71817e;--teal:#097763;--mint:#d3f5e9;--bg:#f3f6f4;--line:#e0e8e3;--white:#fff;--warning:#a86909;--bad:#ba4343}
@@ -55,7 +56,7 @@ const iso=d=>d?new Date(d).toLocaleString('es-CO',{dateStyle:'short',timeStyle:'
 const opts=(list,selected='',blank='Seleccionar')=>'<option value="">'+safe(blank)+'</option>'+list.map(x=>'<option value="'+safe(x.id)+'" '+(selected===x.id?'selected':'')+'>'+safe(x.name)+' · '+safe(x.department_id||'')+'</option>').join('');
 const bds=()=>locations.filter(x=>x.kind==='BODEGA'&&x.active);
 const tecs=()=>locations.filter(x=>x.kind==='TECNICO'&&x.active);
-const pageIcons={dashboard:'⌂',inventory:'⬡',reports:'▤',transfers:'⇄',alerts:'♧',masters:'⚙',CARGA_INICIAL:'⇧',INGRESO:'↓',DESPACHO:'⇢',CONSUMO:'✓',RETIRO:'↙',DEVOLUCION:'↩',PREALERTA:'▤',RECOLECCION:'◈'};
+const pageIcons={dashboard:'⌂',inventory:'⬡',reports:'▤',transfers:'⇄',alerts:'♧',masters:'⚙',technicians:'♙',CARGA_INICIAL:'⇧',INGRESO:'↓',DESPACHO:'⇢',CONSUMO:'✓',RETIRO:'↙',DEVOLUCION:'↩',PREALERTA:'▤',RECOLECCION:'◈'};
 const bodyHead=(title,subtitle,action='')=>'<div class="spread sectionHead"><div><h1 class="head"><span class="page-title-icon">'+safe(pageIcons[page.startsWith('process_')?kind:page]||'◇')+'</span><span>'+safe(title)+'</span></h1><p class="caption" style="margin-left:66px">'+safe(subtitle)+'</p></div>'+action+'</div>';
 const empty=(title,desc)=>'<div class="empty"><strong>'+safe(title)+'</strong>'+safe(desc)+'</div>';
 const pill=(x)=>'<span class="pill '+(/VENCIDA|RECHAZADA|CRITICO|ERROR/.test(x)?'bad':/PENDIENTE|SOLICITADA|ADVERTENCIA|TRANSITO|PREALERTADO/.test(x)?'warn':'gray')+'">'+safe(x)+'</span>';
@@ -71,7 +72,7 @@ const processPages=[
  ['RECOLECCION','◈','Recolecciones']
 ];
 const draftByKind={};
-const navEntries=[['dashboard','▦','Panel general'],['inventory','◫','Inventario'],...processPages.map(([k,i,t])=>['process_'+k,i,t]),['transfers','↗','Transferencias'],['reports','▤','Informes'],['alerts','♧','Alertas'],['masters','⚙','Administración']];
+const navEntries=[['dashboard','▦','Panel general'],['inventory','◫','Inventario'],...processPages.map(([k,i,t])=>['process_'+k,i,t]),['transfers','↗','Transferencias'],['reports','▤','Informes'],['alerts','♧','Alertas'],['technicians','♙','Maestra de técnicos'],['masters','⚙','Administración']];
 function switchPage(id){
  if(page.startsWith('process_'))draftByKind[kind]={rows,previewPage,fileMeta,previewTab,previewQuery,previewOnlyIssues};
  page=id;
@@ -89,11 +90,11 @@ function buildNav(){
   navEntries.filter(([id])=>['dashboard','inventory'].includes(id)).map(x=>item(x)).join('');
  if(staff())html+='<div class="navLabel">MOVIMIENTOS Y OPERACIÓN</div>'+navEntries.filter(([id])=>id.startsWith('process_')).map(x=>item(x,true)).join('');
  html+='<div class="navLabel">SEGUIMIENTO</div>'+navEntries.filter(([id])=>['transfers','reports','alerts'].includes(id)&&!(id==='reports'&&technical())).map(x=>item(x)).join('');
- if(admin())html+='<div class="navLabel">CONFIGURACIÓN</div>'+navEntries.filter(([id])=>id==='masters').map(x=>item(x)).join('');
+ if(staff())html+='<div class="navLabel">CATÁLOGOS Y CONFIGURACIÓN</div>'+navEntries.filter(([id])=>id==='technicians'||(id==='masters'&&admin())).map(x=>item(x)).join('');
  $('#nav').innerHTML=html;
  document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>switchPage(b.dataset.nav));
  const route=page.startsWith('process_')?'Movimientos › '+(kindDetails[kind]?.title||kind):
- ({dashboard:'Inicio › Panel general',inventory:'Inventario › Consulta',transfers:'Seguimiento › Transferencias',reports:'Informes › Saldos',alerts:'Seguimiento › Alertas',masters:'Administración › Usuarios y catálogos'}[page]||'Inicio');
+ ({dashboard:'Inicio › Panel general',inventory:'Inventario › Consulta',transfers:'Seguimiento › Transferencias',reports:'Informes › Saldos',alerts:'Seguimiento › Alertas',technicians:'Catálogos › Maestra de técnicos',masters:'Administración › Usuarios y catálogos'}[page]||'Inicio');
  const crumb=$('#breadcrumb');if(crumb)crumb.textContent='PULSO › '+route;
  const count=notifications.filter(n=>!n.viewed).length;
  if($('#unreadTop')){$('#unreadTop').textContent=count;$('#unreadTop').classList.toggle('hidden',!count);}
@@ -103,7 +104,7 @@ async function login(e){e.preventDefault();if(!db){toast('No cargó la conexión
 async function start(){if(resetting)return;const s=await db.auth.getUser();if(!s.data?.user){$('#auth').classList.remove('hidden');$('#shell').classList.add('hidden');return}me=s.data.user;const r=await db.from('actors').select('*').eq('id',me.id).maybeSingle();if(r.error){toast('Error al validar permisos: '+r.error.message,true);return}profile=r.data;if(!profile||profile.role==='PENDIENTE'||!profile.active){$('#auth').classList.add('hidden');$('#shell').classList.remove('hidden');$('#content').innerHTML=bodyHead('Acceso pendiente','Tu cuenta requiere autorización del administrador')+'<div class="card notice warn">Tu usuario aún no tiene un perfil autorizado. Solicita a logística que configure tu rol y zona.</div>';$('#nav').innerHTML='';$('#username').textContent=me.email;$('#userrole').textContent='PENDIENTE';return}$('#auth').classList.add('hidden');$('#shell').classList.remove('hidden');$('#username').textContent=profile.name||me.email;$('#userrole').textContent=profile.role;$('#roleBadge').textContent=profile.role;$('#welcome').textContent='Bienvenido, '+(profile.name||'equipo PULSO');await refresh()}
 async function fetchAll(table,sel='*'){let all=[],offset=0,step=1000;for(let n=0;n<20;n++){const {data,error}=await db.from(table).select(sel).range(offset,offset+step-1);if(error){throw new Error(table+': '+error.message)}all.push(...(data||[]));if(!data||data.length<step)break;offset+=step}return all}
 async function refresh(){try{[locations,assets,actors,transfers,notifications]=await Promise.all([fetchAll('locations'),fetchAll('assets'),fetchAll('actors'),fetchAll('transfers'),fetchAll('notifications')]);assetsBySerial=new Map(assets.map(a=>[val(a.serial).toUpperCase(),a]));notifications.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));transfers.sort((a,b)=>new Date(b.requested_at)-new Date(a.requested_at));buildNav();render()}catch(e){toast(e.message,true);$('#content').innerHTML=bodyHead('Conexión pendiente','Revisa el acceso a la base de datos')+'<div class="notice bad">'+safe(e.message)+'</div>'}}
-function render(){if(!profile||profile.role==='PENDIENTE')return;const m={dashboard:dashboard,inventory:inventory,transfers:transferView,reports:reports,alerts:alertView,masters:masters};$('#content').innerHTML=page.startsWith('process_')?operations():(m[page]||dashboard)();bindPage()}
+function render(){if(!profile||profile.role==='PENDIENTE')return;const m={dashboard:dashboard,inventory:inventory,transfers:transferView,reports:reports,alerts:alertView,masters:masters,technicians:techniciansView};$('#content').innerHTML=page.startsWith('process_')?operations():(m[page]||dashboard)();bindPage()}
 const kpi=(title,value,icon,note)=>'<div class="card"><div class="spread"><span class="statName">'+safe(title)+'</span><span class="orb">'+icon+'</span></div><div class="metric">'+safe(value)+'</div><span class="small muted">'+safe(note)+'</span></div>';
 
 function dashboard(){
@@ -205,14 +206,16 @@ function operationSummary(){
  const dups=rows.filter(r=>duplicates.has(val(r.serial).toUpperCase())).length;
  const destinations=new Set(rows.map(r=>r.bodega_id).filter(Boolean));
  const involved=new Set(rows.map(r=>r.tech_id).filter(Boolean));
- const titles=kind==='CARGA_INICIAL'||kind==='INGRESO'?'Bodegas encontradas':'Técnicos identificados';
- const measure=kind==='CARGA_INICIAL'||kind==='INGRESO'?destinations.size:involved.size;
+ const namesInExcel=new Set(rows.map(r=>normalizeHeader(r.source_person)).filter(Boolean));
+ const titles=kind==='CARGA_INICIAL'||kind==='INGRESO'?'Bodegas encontradas':kind==='DESPACHO'?'Técnicos en Excel':'Técnicos identificados';
+ const measure=kind==='CARGA_INICIAL'||kind==='INGRESO'?destinations.size:kind==='DESPACHO'?namesInExcel.size:involved.size;
+ const finalNote=kind==='DESPACHO'?'Registrados en maestra: '+involved.size:'Reconocidos en el archivo';
  return '<div class="metric-row">'+
  statTile('Total de registros','Del archivo importado',rows.length,'▣','primary')+
  statTile('Registros válidos',rows.length?((valid/rows.length)*100).toFixed(1)+'% del total':'Sin cargar',valid,'✓','success')+
  statTile('Con observaciones',rows.length?((issues/rows.length)*100).toFixed(1)+'% del total':'Sin cargar',issues,'!','danger')+
  statTile('Registros duplicados','Dentro de este archivo',dups,'▤')+
- statTile(titles,'Reconocidos en el archivo',measure,'⌂','amber')+
+ statTile(titles,finalNote,measure,'⌂','amber')+
  '</div>';
 }
 function operations(){
@@ -251,9 +254,12 @@ function pick(o,...aliases){let keys=Object.keys(o),n=keys.map(normalizeHeader);
 function findLocation(name,type){
  if(!name)return '';
  const n=normalizeHeader(name);
- return (locations.find(x=>x.kind===type&&(
-   normalizeHeader(x.name)===n||normalizeHeader(x.identifier)===n||x.id===name
- )))?.id||'';
+ // Prioriza identificadores exactos; un nombre ambiguo nunca se asigna al azar.
+ const pool=locations.filter(x=>x.kind===type&&x.active);
+ const ids=pool.filter(x=>x.id===name||x.identifier&&normalizeHeader(x.identifier)===n);
+ if(ids.length===1)return ids[0].id;
+ const same=pool.filter(x=>normalizeHeader(x.name)===n);
+ return same.length===1?same[0].id:'';
 }
 function prepare(o,i){
  const rawSerial=val(pick(o,'serial','serial de repuesto recibido','serial de repuesto recib','serial instalado','serial retirado','numero de serie','serial del repuesto','serial equipo'));
@@ -314,7 +320,7 @@ function precheck(r,duplicates){
   return '';
  }
  if(kind==='DESPACHO'){
-  if(!r.tech_id)return 'Selecciona técnico receptor';
+  if(!r.tech_id)return r.source_person?'Técnico no registrado en maestra':'Técnico no informado en Excel';
   if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
   if(!a)return 'Serial no existe';
   if(a.stock_type!=='LIBRE'||a.state!=='DISPONIBLE'||loc(a.location_id)?.kind!=='BODEGA')return 'No disponible en bodega';
@@ -326,7 +332,7 @@ function precheck(r,duplicates){
   if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
  }
  if(kind==='RETIRO'){
-  if(!r.tech_id)return 'Selecciona técnico que retiró';
+  if(!r.tech_id)return r.source_person?'Técnico no registrado en maestra':'Técnico no informado en Excel';
   if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
   if(!a&&!r.sap)return 'Falta SAP del equipo nuevo';
   if(a&&a.stock_type!=='CONSUMIDO')return 'Serial existente: revisar su historial';
@@ -471,6 +477,7 @@ function masters(){if(!admin())return empty('Sin acceso','Configuración exclusi
 '<div class="card" style="margin-top:16px"><div class="spread"><strong>Usuarios y permisos</strong><span class="pill warn">Solo ADMIN puede asignar perfiles</span></div><p class="help">Crea primero las cuentas con Supabase Auth; después asigna aquí su rol y la custodia individual o departamento correspondiente.</p><div class="tablewrap"><table class="table"><thead><tr><th>Usuario</th><th>Rol</th><th>Departamento</th><th>Inventario técnico</th><th></th></tr></thead><tbody>'+actors.map(a=>'<tr><td><input data-user-name="'+a.id+'" value="'+safe(a.name)+'"></td><td><select data-user-role="'+a.id+'">'+['PENDIENTE','TECNICO','SUPERVISOR','ASISTENTE','ADMIN'].map(v=>'<option '+(a.role===v?'selected':'')+'>'+v+'</option>').join('')+'</select></td><td><select data-user-dept="'+a.id+'">'+opts([{id:'GUAJIRA',name:'La Guajira'},{id:'CESAR',name:'Cesar'},{id:'SAN_ANDRES',name:'San Andrés'}],a.department_id)+'</select></td><td><select data-user-loc="'+a.id+'">'+opts(tecs(),a.location_id)+'</select></td><td><button class="btn small" data-user-save="'+a.id+'">Guardar</button></td></tr>').join('')+'</tbody></table></div></div>'}
 function bindPage(){
  const refreshBtn=$('#refreshBtn');if(refreshBtn)refreshBtn.onclick=refresh;
+ if(page==='technicians')bindTechniciansPage();
  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>switchPage(el.dataset.go));
  if($('#exportInventory'))$('#exportInventory').onclick=()=>exportCurrentInventory();
  if($('#q'))$('#q').oninput=e=>{q=e.target.value;let pos=e.target.selectionStart;render();let input=$('#q');input.focus();input.setSelectionRange(pos,pos)};
