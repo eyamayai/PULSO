@@ -205,7 +205,8 @@ function operationSummary(){
  const valid=rows.length-issues;
  const dups=rows.filter(r=>duplicates.has(val(r.serial).toUpperCase())).length;
  const destinations=new Set(rows.map(r=>r.bodega_id).filter(Boolean));
- const involved=new Set(rows.map(r=>r.tech_id).filter(Boolean));
+ const idsValidos=new Set(tecs().map(t=>t.id));
+ const involved=new Set(rows.map(r=>r.tech_id).filter(id=>idsValidos.has(id)));
  const namesInExcel=new Set(rows.map(r=>normalizeHeader(r.source_person)).filter(Boolean));
  const titles=kind==='CARGA_INICIAL'||kind==='INGRESO'?'Bodegas encontradas':kind==='DESPACHO'?'Técnicos en Excel':'Técnicos identificados';
  const measure=kind==='CARGA_INICIAL'||kind==='INGRESO'?destinations.size:kind==='DESPACHO'?namesInExcel.size:involved.size;
@@ -320,7 +321,7 @@ function precheck(r,duplicates){
   return '';
  }
  if(kind==='DESPACHO'){
-  if(!r.tech_id)return r.source_person?'Técnico no registrado en maestra':'Técnico no informado en Excel';
+  if(!r.tech_id||!tecs().some(t=>t.id===r.tech_id))return r.source_person?'Técnico no registrado en maestra':'Técnico no informado en Excel';
   if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
   if(!a)return 'Serial no existe';
   if(a.stock_type!=='LIBRE'||a.state!=='DISPONIBLE'||loc(a.location_id)?.kind!=='BODEGA')return 'No disponible en bodega';
@@ -328,11 +329,12 @@ function precheck(r,duplicates){
  if(kind==='CONSUMO'){
   if(!a)return 'Serial no existe en PULSO';
   if(a.stock_type!=='LIBRE'||a.state!=='ASIGNADO')return 'No es LIBRE asignado';
+  if(r.tech_id&&!tecs().some(t=>t.id===r.tech_id))return 'Técnico no registrado en maestra';
   if(r.tech_id&&a.location_id!==r.tech_id)return 'Asignado a otro técnico';
   if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
  }
  if(kind==='RETIRO'){
-  if(!r.tech_id)return r.source_person?'Técnico no registrado en maestra':'Técnico no informado en Excel';
+  if(!r.tech_id||!tecs().some(t=>t.id===r.tech_id))return r.source_person?'Técnico no registrado en maestra':'Técnico no informado en Excel';
   if(r.source_person&&!findLocation(r.source_person,'TECNICO')&&!r.tech_id)return 'Técnico no reconocido';
   if(!a&&!r.sap)return 'Falta SAP del equipo nuevo';
   if(a&&a.stock_type!=='CONSUMIDO')return 'Serial existente: revisar su historial';
