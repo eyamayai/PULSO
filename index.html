@@ -218,6 +218,7 @@ function operationSummary(){
 function operations(){
  if(!staff())return empty('Sin acceso','Operaciones exclusivas de logística.');
  const conf=kindDetails[kind],initial=kind==='CARGA_INICIAL';
+ const duplicateSerialsCache=duplicateSerials();
  const showWarehouse=['CARGA_INICIAL','INGRESO','DEVOLUCION'].includes(kind);
  const showTech=['DESPACHO','CONSUMO','RETIRO'].includes(kind);
  let selectors='';
@@ -235,13 +236,13 @@ function operations(){
  (selectors?'<div class="card" style="margin-top:13px"><div class="grid '+(showWarehouse&&showTech?'two':'three')+'">'+selectors+'</div></div>':'')+
  operationSummary()+
  '<div class="tabbar">'+[
- ['preview','◉ Vista previa'],['issues','⚠ Validaciones ('+rows.filter(r=>precheck(r,duplicateSerials())).length+')'],
+ ['preview','◉ Vista previa'],['issues','⚠ Validaciones ('+rows.filter(r=>precheck(r,duplicateSerialsCache)).length+')'],
  ['location','▥ Resumen por '+(initial?'bodega':'ubicación')],
  ['category','◕ Resumen por '+(showTech?'técnico':'categoría')]
  ].map(([id,label])=>'<button type="button" class="'+(previewTab===id?'active':'')+'" data-tab="'+id+'">'+label+'</button>').join('')+'</div>'+
  '<div class="preview-area">'+preview()+'</div>'+
  '<div class="preview-actions"><div class="row"><button id="clearBatch" class="btn outline danger" '+(!rows.length?'disabled':'')+'>✕ Limpiar carga</button><span class="micro muted">Los datos no se guardan hasta confirmar.</span></div>'+
- '<div class="row wrap"><button class="btn outline" id="cancelBatch">Cancelar</button><button class="btn" id="saveBatch" '+(!rows.length||rows.some(r=>precheck(r,duplicateSerials()))?'disabled':'')+'>✓ Confirmar '+rows.length.toLocaleString('es-CO')+' registros</button></div></div>';
+ '<div class="row wrap"><button class="btn outline" id="cancelBatch">Cancelar</button><button class="btn" id="saveBatch" '+(!rows.length||rows.some(r=>precheck(r,duplicateSerialsCache))?'disabled':'')+'>✓ Confirmar '+rows.length.toLocaleString('es-CO')+' registros</button></div></div>';
 }
 
 function normalizeHeader(h){return String(h||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')}
@@ -428,8 +429,26 @@ function transferView(){
  '<div class="process-info" style="margin-top:16px"><span class="info-icon">i</span><p><strong>Alertas automáticas:</strong> aviso cada 6 horas mientras esté pendiente la recepción. Advertencia desde 12 horas y nivel crítico desde 24 horas. El envío por correo requiere un servicio saliente configurado.</p></div>';
 }
 
-function reports(){let incl=assets.filter(a=>!reportLoc.length||reportLoc.includes(a.location_id));let count=incl.filter(a=>a.stock_type==='LIBRE').length;let inverse=incl.filter(a=>a.stock_type==='INVERSA').length;return bodyHead('Reportes de saldos','Selecciona una o varias bodegas. Exportación Excel con seriales y estados')+
-'<div class="card stack"><div class="spread"><strong>Selector de bodegas</strong><div class="row"><button class="btn outline small" id="selectAll">Todas</button><button class="btn outline small" id="clearAll">Limpiar</button></div></div><div class="multiselect">'+bds().filter(x=>staff()||x.department_id===profile.department_id).map(l=>'<label class="checkbox"><input type="checkbox" data-report="'+l.id+'" '+(reportLoc.includes(l.id)?'checked':'')+'>'+safe(l.name)+' <span class="muted">· '+safe(l.department_id)+'</span></label>').join('')+'</div><div class="notice">Sin selección: informe de todos los inventarios visibles. Con selección: solo las bodegas marcadas.</div><div class="grid three">'+kpi('Equipos en selección',incl.length,'▤','Todas las clasificaciones')+kpi('LIBRE',count,'◫','Material disponible')+kpi('INVERSA',inverse,'⇅','Material en custodia')+'</div><div class="spread"><span class="help">El informe incluye código SAP, serial, ubicación, estado, lote y tipo de recepción.</span><button class="btn" id="exportReport">↓ Exportar Excel</button></div></div>'}
+
+function reports(){
+ const selected=assets.filter(a=>!reportLoc.length||reportLoc.includes(a.location_id));
+ const libre=selected.filter(a=>a.stock_type==='LIBRE').length;
+ const inversa=selected.filter(a=>a.stock_type==='INVERSA').length;
+ const consumidos=selected.filter(a=>a.stock_type==='CONSUMIDO').length;
+ const disponible=selected.filter(a=>a.state==='DISPONIBLE').length;
+ const bs=bds().filter(x=>staff()||x.department_id===profile.department_id);
+ const byLoc=new Map();
+ for(const a of selected){const key=locName(a.location_id);const z=byLoc.get(key)||{libre:0,inversa:0,otros:0};z[a.stock_type==='LIBRE'?'libre':a.stock_type==='INVERSA'?'inversa':'otros']++;byLoc.set(key,z);}
+ return bodyHead('Informes y saldos','Consulta y exporta el inventario de una o varias bodegas, según tu alcance.')+
+ '<div class="card"><div class="spread wrap"><div><strong>⌂ Selección de bodegas</strong><div class="caption">Marca las bodegas que deseas incluir en el informe.</div></div><div class="row"><button class="btn outline small" id="selectAll">Todas</button><button class="btn outline small" id="clearAll">Limpiar</button></div></div>'+
+ '<div class="multiselect" style="margin-top:15px">'+bs.map(l=>'<label class="checkbox"><input type="checkbox" data-report="'+l.id+'" '+(reportLoc.includes(l.id)?'checked':'')+'>'+safe(l.name)+' <span class="muted">· '+safe(l.department_id)+'</span></label>').join('')+'</div>'+
+ '<div class="notice" style="margin-top:15px">Sin seleccionar ninguna bodega, el informe incluye todas las existencias visibles para tu perfil. Puedes elegir una o varias.</div></div>'+
+ '<div class="metric-row">'+statTile('Equipos en selección','Todos los tipos',selected.length,'▣','primary')+statTile('LIBRE','Bodegas y técnicos',libre,'✓','success')+statTile('INVERSA','Pendientes y recibidos',inversa,'⇄')+statTile('Consumidos','Historial conciliado',consumidos,'◷','amber')+statTile('Disponibles','Listos para despacho',disponible,'⌂')+'</div>'+
+ '<div class="preview-area"><div class="preview-header"><div><strong>Resumen por custodia</strong><div class="caption">Saldos reales de la selección actual.</div></div><button class="btn" id="exportReport">↓ Exportar informe Excel</button></div>'+
+ '<div class="tablewrap"><table class="table"><thead><tr><th>Bodega o custodio</th><th>LIBRE</th><th>INVERSA</th><th>Otros estados</th><th>Total</th></tr></thead><tbody>'+
+ [...byLoc].sort((a,b)=>a[0].localeCompare(b[0])).map(([name,n])=>'<tr><td><strong>'+safe(name)+'</strong></td><td>'+n.libre+'</td><td>'+n.inversa+'</td><td>'+n.otros+'</td><td><strong>'+(n.libre+n.inversa+n.otros)+'</strong></td></tr>').join('')+
+ '</tbody></table>'+(!byLoc.size?empty('Sin existencias','No hay registros en la selección actual.'):'')+'</div></div>';
+}
 
 function alertView(){
  const unread=notifications.filter(n=>!n.viewed).length;
