@@ -18,9 +18,10 @@ function techDepartment(s){
 }
 function technicianExisting(r){
  const id=techNorm(r.identifier);
- const byId=id?tecs().find(t=>techNorm(t.identifier)===id):null;
+ const all=locations.filter(t=>t.kind==='TECNICO');
+ const byId=id?all.find(t=>techNorm(t.identifier)===id):null;
  if(byId)return byId;
- const byName=tecs().filter(t=>techNorm(t.name)===techNorm(r.name));
+ const byName=all.filter(t=>techNorm(t.name)===techNorm(r.name));
  return byName[0]||null;
 }
 function techIssue(r,index,collection=techRows){
@@ -37,14 +38,14 @@ function techIssue(r,index,collection=techRows){
 function techSummary(){
  const bad=techRows.filter((r,i)=>techIssue(r,i)).length;
  return '<div class="metric-row">'+
- statTile('Técnicos en la maestra','Registrados en PULSO',tecs().length,'♙','primary')+
+ statTile('Técnicos en la maestra','Registrados en PULSO',locations.filter(t=>t.kind==='TECNICO').length,'♙','primary')+
  statTile('Filas importadas','Pendientes de confirmar',techRows.length,'▤')+
  statTile('Registros válidos','Listos para importar',techRows.length-bad,'✓','success')+
  statTile('Con observaciones','Corregir en archivo Excel',bad,'!','danger')+
  statTile('Departamentos','Con técnicos activos',new Set(tecs().filter(t=>t.active).map(t=>t.department_id)).size,'⌂','amber')+'</div>';
 }
 function techList(){
- const found=tecs().filter(t=>!techQuery||[t.name,t.identifier,t.department_id,t.supervisor_name].some(v=>String(v||'').toLowerCase().includes(techQuery.toLowerCase())));
+ const found=locations.filter(t=>t.kind==='TECNICO').filter(t=>!techQuery||[t.name,t.identifier,t.department_id,t.supervisor_name].some(v=>String(v||'').toLowerCase().includes(techQuery.toLowerCase())));
  return '<div class="preview-header"><div><strong>Técnicos registrados ('+found.length+')</strong><div class="caption">La maestra es independiente de las cuentas de acceso. Cada técnico tendrá inventario propio.</div></div>'+
  '<input id="techQuery" class="preview-search" value="'+safe(techQuery)+'" placeholder="⌕ Buscar nombre, identificación..."></div>'+
  '<div class="tablewrap"><table class="table"><thead><tr><th>Nombre completo</th><th>Identificación</th><th>Departamento</th><th>Supervisor</th><th>Estado</th><th>Acción</th></tr></thead><tbody>'+
@@ -121,7 +122,6 @@ async function techInsert(payload){
 async function techSaveBatch(){
  try{
   if(!techRows.length)throw Error('No hay técnicos por registrar.');
-  const errors=techRows.map(techIssue);
   const invalid=techRows.map((r,i)=>techIssue(r,i)).filter(Boolean);
   if(invalid.length)throw Error('Corrige las '+invalid.length+' observaciones en Excel antes de confirmar.');
   if(!confirm('¿Registrar '+techRows.length+' técnicos en la maestra? No se crearán usuarios ni despachos.'))return;
