@@ -39,6 +39,7 @@
 'use strict';
 const SUPABASE_ENDPOINT='https://qdzkpwhtxabyqpxmqrcg.supabase.co';
 const KEY='sb_publishable_Sh9uqA-_bGaQTPR9HjGAVg_hW_LAE1o';
+let fileMeta=null,previewTab='preview',previewQuery='',previewOnlyIssues=false;
 let db=null,me=null,profile=null,resetting=false,locations=[],assets=[],assetsBySerial=new Map(),actors=[],transfers=[],notifications=[],movements=[],page='dashboard',kind='INGRESO',rows=[],previewPage=0,reportLoc=[],q='',stockFilter='',locFilter='';
 const $=s=>document.querySelector(s);
 const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -144,21 +145,55 @@ const kindDetails={
  PREALERTA:{title:'Prealertas INVERSA',subtitle:'Identifica equipos INVERSA en bodega destinados a devolución al cliente.',tip:'Prealertar no descuenta inventario. El equipo permanece en la bodega hasta la recolección física.'},
  RECOLECCION:{title:'Recolecciones del cliente',subtitle:'Confirma la entrega física de equipos previamente prealertados.',tip:'Solo al confirmar la recolección se descuenta el equipo de INVERSA.'}
 };
+
+function statTile(label,note,count,icon,tone=''){
+ return '<div class="metric-tile '+tone+'"><div class="topline"><span class="m-icon">'+icon+'</span><span class="tile-label">'+safe(label)+'</span></div>'+
+ '<div class="count">'+count.toLocaleString('es-CO')+'</div><div class="tile-bottom">'+safe(note)+'</div></div>';
+}
+function operationSummary(){
+ const duplicates=duplicateSerials();
+ const issues=rows.filter(r=>precheck(r,duplicates)).length;
+ const valid=rows.length-issues;
+ const dups=rows.filter(r=>duplicates.has(val(r.serial).toUpperCase())).length;
+ const destinations=new Set(rows.map(r=>r.bodega_id).filter(Boolean));
+ const involved=new Set(rows.map(r=>r.tech_id).filter(Boolean));
+ const titles=kind==='CARGA_INICIAL'||kind==='INGRESO'?'Bodegas encontradas':'Técnicos identificados';
+ const measure=kind==='CARGA_INICIAL'||kind==='INGRESO'?destinations.size:involved.size;
+ return '<div class="metric-row">'+
+ statTile('Total de registros','Del archivo importado',rows.length,'▣','primary')+
+ statTile('Registros válidos',rows.length?((valid/rows.length)*100).toFixed(1)+'% del total':'Sin cargar',valid,'✓','success')+
+ statTile('Con observaciones',rows.length?((issues/rows.length)*100).toFixed(1)+'% del total':'Sin cargar',issues,'!','danger')+
+ statTile('Registros duplicados','Dentro de este archivo',dups,'▤')+
+ statTile(titles,'Reconocidos en el archivo',measure,'⌂','amber')+
+ '</div>';
+}
 function operations(){
  if(!staff())return empty('Sin acceso','Operaciones exclusivas de logística.');
- const conf=kindDetails[kind],isInitial=kind==='CARGA_INICIAL';
- const bodNeeded=['CARGA_INICIAL','INGRESO','DEVOLUCION'].includes(kind);
- const techNeeded=['DESPACHO','CONSUMO','RETIRO'].includes(kind);
- let targets='';
-
- if(bodNeeded)targets+='<label class="field">Bodega de recepción<select id="defaultBod">'+opts(bds(),window.defaultBod||'','Seleccionar bodega')+'</select></label>';
- if(techNeeded)targets+='<label class="field">Técnico'+(isInitial?' responsable':' (para filas sin técnico)')+'<select id="defaultTec">'+opts(tecs(),window.defaultTec||'','Seleccionar técnico')+'</select></label>';
- return bodyHead(conf.title,conf.subtitle)+
- '<div class="card stack"><div class="spread wrap"><div><div class="eyebrow">PASO 1 · PREPARACIÓN</div><strong>Plantilla exclusiva de '+safe(conf.title.toLowerCase())+'</strong></div><span class="pill">Proceso independiente</span></div>'+
- '<div class="grid three">'+targets+'<div class="field"><span>Archivo de Excel</span><div class="row wrap"><button class="btn outline" id="downloadTemplate">↓ Descargar plantilla</button><label class="btn subtle" style="cursor:pointer">↑ Cargar Excel<input id="upload" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label></div></div></div>'+
- '<div class="notice">'+safe(conf.tip)+'</div>'+
- '<div class="spread wrap"><div><div class="eyebrow">PASO 2 · VALIDACIÓN</div><strong>Vista previa '+(rows.length?'('+rows.length+' filas)':'')+'</strong><p class="micro muted" style="margin:5px 0 0">Puedes corregir los campos de esta operación antes de confirmar.</p></div><div class="row wrap"><button class="btn subtle small" id="addRow">+ Agregar fila</button><button class="btn small" id="saveBatch" '+(!rows.length?'disabled':'')+'>✓ Confirmar '+rows.length+' registros</button></div></div>'+
- '<div id="preview">'+preview()+'</div></div>';
+ const conf=kindDetails[kind],initial=kind==='CARGA_INICIAL';
+ const showWarehouse=['CARGA_INICIAL','INGRESO','DEVOLUCION'].includes(kind);
+ const showTech=['DESPACHO','CONSUMO','RETIRO'].includes(kind);
+ let selectors='';
+ if(showWarehouse)selectors+='<label class="field">Bodega predeterminada para campos vacíos<select id="defaultBod">'+opts(bds(),window.defaultBod||'','Sin selección')+'</select></label>';
+ if(showTech)selectors+='<label class="field">Técnico predeterminado para campos vacíos<select id="defaultTec">'+opts(tecs(),window.defaultTec||'','Sin selección')+'</select></label>';
+ const notice=initial
+ ?'<div class="process-info"><span class="info-icon">i</span><p><strong>Importante:</strong> En la carga inicial los equipos ingresan únicamente a sus bodegas de origen, en LIBRE o INVERSA.<br>La asignación a técnicos se registrará después desde <strong>Despachos</strong>.</p><span style="margin-left:auto;white-space:nowrap;color:#2d7197;font-size:12px">⌂ Bodegas &nbsp; ⟶ &nbsp; ♙ Técnicos</span></div>'
+ :'<div class="process-info"><span class="info-icon">i</span><p>'+safe(conf.tip)+'</p></div>';
+ return bodyHead(initial?'Carga inicial de inventario':conf.title,conf.subtitle,
+ '<button class="btn outline" id="downloadTemplate">↓ Descargar plantilla Excel</button>')+
+ notice+
+ '<div class="upload-zone" id="dropzone"><div class="row" style="gap:14px;min-width:210px"><span class="file-graphic">⇧</span><div><strong>Selecciona un archivo Excel</strong><div class="caption">Arrastra y suelta aquí o utiliza el selector de archivos</div><div class="micro muted">Archivos .xlsx, .xls y .csv · Vista previa de solo lectura</div></div></div>'+
+ '<div class="row wrap">'+(fileMeta?'<div class="file-chip"><span style="font-size:22px;color:#08745a">▤</span><div><div class="file-name" title="'+safe(fileMeta.name)+'">'+safe(fileMeta.name)+'</div><div class="micro muted">'+rows.length.toLocaleString('es-CO')+' registros · '+(fileMeta.size/1024/1024).toFixed(2)+' MB</div></div><span style="color:#128968;font-size:20px">✓</span></div>':'')+
+ '<label class="btn outline" style="cursor:pointer">▤ Seleccionar archivo<input id="upload" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label></div></div>'+
+ (selectors?'<div class="card" style="margin-top:13px"><div class="grid '+(showWarehouse&&showTech?'two':'three')+'">'+selectors+'</div></div>':'')+
+ operationSummary()+
+ '<div class="tabbar">'+[
+ ['preview','◉ Vista previa'],['issues','⚠ Validaciones ('+rows.filter(r=>precheck(r,duplicateSerials())).length+')'],
+ ['location','▥ Resumen por '+(initial?'bodega':'ubicación')],
+ ['category','◕ Resumen por '+(showTech?'técnico':'categoría')]
+ ].map(([id,label])=>'<button type="button" class="'+(previewTab===id?'active':'')+'" data-tab="'+id+'">'+label+'</button>').join('')+'</div>'+
+ '<div class="preview-area">'+preview()+'</div>'+
+ '<div class="preview-actions"><div class="row"><button id="clearBatch" class="btn outline danger" '+(!rows.length?'disabled':'')+'>✕ Limpiar carga</button><span class="micro muted">Los datos no se guardan hasta confirmar.</span></div>'+
+ '<div class="row wrap"><button class="btn outline" id="cancelBatch">Cancelar</button><button class="btn" id="saveBatch" '+(!rows.length||rows.some(r=>precheck(r,duplicateSerials()))?'disabled':'')+'>✓ Confirmar '+rows.length.toLocaleString('es-CO')+' registros</button></div></div>';
 }
 
 function normalizeHeader(h){return String(h||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')}
@@ -274,41 +309,48 @@ const previewLabels={
  sap_center:'Centro SAP',sap_warehouse:'Bodega SAP',document:'Documento',supplier:'Proveedor',
  ot:'Orden de trabajo',site:'ID del sitio',event_id:'ID Claro',reason:'Motivo'
 };
-function previewField(r,idx,key){
- const cell=(html)=>'<td>'+html+'</td>';
- if(key==='lot')return cell('<span class="pill gray">'+(r.reception==='Nuevo'?'VALORADO':'NOVALORADO')+'</span>');
- if(key==='tech_id')return cell('<select data-edit="'+idx+'" data-key="tech_id">'+opts(tecs(),r.tech_id,'Selecciona técnico')+'</select>'+(r.source_person?'<div class="micro muted">'+safe(r.source_person)+'</div>':''));
- if(key==='bodega_id')return cell('<select data-edit="'+idx+'" data-key="bodega_id">'+opts(bds(),r.bodega_id,'Selecciona bodega')+'</select>'+(r.source_bodega?'<div class="micro muted">'+safe(r.source_bodega)+'</div>':''));
- const selects={
-  reception:['Nuevo','Remanufacturado'],
-  serial_kind:['FISICO','GENERICO'],stock_type:['LIBRE','INVERSA'],
-  reason:['NO UTILIZADO','GARANTIA','DESMONTE']
- };
- if(selects[key])return cell('<select data-edit="'+idx+'" data-key="'+key+'">'+
-  (key==='reason'?'<option value="">Seleccionar motivo</option>':'')+
-  selects[key].map(v=>'<option value="'+v+'" '+(r[key]===v?'selected':'')+'>'+safe(v)+'</option>').join('')+'</select>');
- if(key==='date')return cell('<input type="date" data-edit="'+idx+'" data-key="date" value="'+safe(r.date)+'">');
- return cell('<input data-edit="'+idx+'" data-key="'+key+'" value="'+safe(r[key])+'" style="min-width:'+(['description','serial','supplier'].includes(key)?'175':'105')+'px">');
+
+function previewValue(r,key){
+ if(key==='lot')return r.reception==='Nuevo'?'VALORADO':'NOVALORADO';
+ if(key==='bodega_id')return locName(r.bodega_id)==='Sin custodia'?(r.source_bodega||'Sin bodega'):locName(r.bodega_id);
+ if(key==='tech_id')return locName(r.tech_id)==='Sin custodia'?(r.source_person||'Sin técnico'):locName(r.tech_id);
+ if(key==='date'){let [y,m,d]=String(r.date||'').split('-');return d&&m&&y?d+'/'+m+'/'+y:String(r.date||'');}
+ if(key==='document')return r.document||'Sin documento';
+ return r[key]??'';
 }
 function preview(){
- if(!rows.length)return empty('No hay información cargada','Descarga la plantilla de este módulo o importa un archivo Excel para iniciar la revisión.');
- const duplicates=duplicateSerials();
- const problems=rows.filter(r=>precheck(r,duplicates)).length;
- const chunk=rows.slice(previewPage*30,(previewPage+1)*30);
- const columns=previewColumns[kind]||[];
- const head='<thead><tr><th># / Validación</th>'+columns.map(k=>'<th>'+safe(previewLabels[k])+'</th>').join('')+'<th>Quitar</th></tr></thead>';
- const body=chunk.map((r,ix)=>{
-  let idx=previewPage*30+ix,issue=precheck(r,duplicates);
-  return '<tr><td>'+r._idx+'<div class="micro" style="color:'+(issue?'#b34c38':'#14816b')+'">'+safe(issue||'Sin alertas')+'</div></td>'+
-   columns.map(k=>previewField(r,idx,k)).join('')+
-   '<td><button class="btn outline small" data-remove="'+idx+'">✕</button></td></tr>';
- }).join('');
- return '<div class="spread wrap"><span class="pill '+(problems?'warn':'')+'">'+problems+' fila(s) con observaciones previas</span>'+
- '<div class="row"><button id="pPrev" class="btn outline small" '+(!previewPage?'disabled':'')+'>Anterior</button>'+
- '<span class="small muted">Página '+(previewPage+1)+' de '+Math.ceil(rows.length/30)+'</span>'+
- '<button id="pNext" class="btn outline small" '+((previewPage+1)*30>=rows.length?'disabled':'')+'>Siguiente</button></div></div>'+
- '<div class="tablewrap" style="margin-top:12px"><table class="table">'+head+'<tbody>'+body+'</tbody></table></div>'+
- '<div class="help" style="margin-top:10px">La validación de esta vista es preliminar. La confirmación aplica todas las reglas de la base de datos y no permite guardar solo parte del lote.</div>';
+ if(!rows.length)return empty('Aún no hay registros para revisar','Carga un archivo Excel para visualizar sus datos, detectar observaciones y consultar los resúmenes.');
+ const dup=duplicateSerials(),issues=rows.map((r,i)=>({r,i,issue:precheck(r,dup)})).filter(x=>x.issue);
+ const cols=previewColumns[kind]||[];
+ if(previewTab==='issues'){
+  return '<div class="preview-header"><div><strong>Validaciones del archivo</strong><div class="caption">Revisa las filas con problemas y corrígelas en el Excel original.</div></div><span class="pill '+(issues.length?'warn':'')+'">'+issues.length+' observaciones</span></div>'+
+  (issues.length?'<div class="issue-list">'+issues.slice(0,100).map(({r,i,issue})=>'<div class="issue-item"><span><strong>Fila '+(i+2)+'</strong> · '+safe(r.serial||'Sin serial')+' · '+safe(issue)+'</span><span class="pill warn">Revisar Excel</span></div>').join('')+'</div>'+(issues.length>100?'<p class="caption">Mostrando las primeras 100 observaciones.</p>':''):empty('Sin observaciones','Todas las filas pasaron la validación preliminar.'));
+ }
+ if(previewTab==='location'||previewTab==='category'){
+  const key=previewTab==='location'?(r=>r.bodega_id?locName(r.bodega_id):r.tech_id?locName(r.tech_id):'Sin asignar'):(r=>(['CONSUMO','RETIRO','DESPACHO'].includes(kind)?previewValue(r,'tech_id'):(r.category||'Sin categoría')));
+  const groups=new Map();rows.forEach(r=>{let name=key(r);let z=groups.get(name)||{n:0,issues:0};z.n++;if(precheck(r,dup))z.issues++;groups.set(name,z)});
+  return '<div class="preview-header"><div><strong>'+ (previewTab==='location'?'Resumen por ubicación':'Distribución de registros')+'</strong><div class="caption">Totales calculados a partir del archivo cargado.</div></div><span class="pill gray">'+groups.size+' grupos</span></div>'+
+  '<div class="tablewrap"><table class="table"><thead><tr><th>Grupo</th><th>Registros</th><th>Sin observaciones</th><th>Observaciones</th><th>Distribución</th></tr></thead><tbody>'+
+  [...groups].sort((a,b)=>b[1].n-a[1].n).map(([name,v])=>'<tr><td><strong>'+safe(name)+'</strong></td><td>'+v.n.toLocaleString('es-CO')+'</td><td>'+ (v.n-v.issues) +'</td><td>'+v.issues+'</td><td style="min-width:140px"><div class="pulse-bar"><span style="width:'+Math.max(1,Math.round(v.n/rows.length*100))+'%"></span></div></td></tr>').join('')+'</tbody></table></div>';
+ }
+ const query=previewQuery.trim().toLowerCase();
+ const subset=rows.map((r,i)=>({r,i,issue:precheck(r,dup)})).filter(({r,issue})=>(!previewOnlyIssues||issue)&&(!query||[r.serial,r.sap,r.description,r.category,r.document,r.source_bodega,r.source_person,r.ot,r.site,locName(r.bodega_id),locName(r.tech_id)].some(v=>String(v||'').toLowerCase().includes(query))));
+ const perPage=15;
+ const maxPage=Math.max(1,Math.ceil(subset.length/perPage));
+ previewPage=Math.min(Math.max(previewPage,0),maxPage-1);
+ const chunk=subset.slice(previewPage*perPage,(previewPage+1)*perPage);
+ const hdr='<thead><tr><th>#</th>'+cols.map(k=>'<th>'+safe(k==='document'?'Documento de ingreso':previewLabels[k])+'</th>').join('')+'<th>Estado</th></tr></thead>';
+ const trs=chunk.map(({r,i,issue})=>'<tr class="'+(issue?'issue-row':'')+'"><td class="strong">'+(i+2)+'</td>'+
+ cols.map(key=>'<td title="'+safe(previewValue(r,key))+'">'+safe(previewValue(r,key))+'</td>').join('')+
+ '<td><span class="pill '+(issue?'warn':'')+'" title="'+safe(issue)+'">'+(issue?'⚠ Observación':'✓ Válido')+'</span></td></tr>').join('');
+ return '<div class="preview-header"><div><strong>Vista previa de los registros importados</strong><div class="caption">Información leída del Excel, sin edición de celdas.</div></div><div class="row wrap">'+
+ '<input id="previewSearch" class="preview-search" placeholder="⌕ Buscar serial, SAP, documento..." value="'+safe(previewQuery)+'">'+
+ '<label class="checkbox"><input type="checkbox" id="onlyIssues" '+(previewOnlyIssues?'checked':'')+'> Solo observaciones</label></div></div>'+
+ '<div class="tablewrap"><table class="table">'+hdr+'<tbody>'+trs+'</tbody></table>'+
+ (!subset.length?empty('Sin resultados','No hay registros para el filtro seleccionado.'):'')+'</div>'+
+ '<div class="preview-actions"><span class="micro muted">Mostrando '+(chunk.length?(previewPage*perPage+1):0)+' a '+Math.min((previewPage+1)*perPage,subset.length)+' de '+subset.length.toLocaleString('es-CO')+' registros</span>'+
+ '<div class="pager"><span class="micro muted">Página '+(previewPage+1)+' de '+maxPage+'</span><button id="pPrev" class="btn outline small" '+(!previewPage?'disabled':'')+'>‹</button>'+
+ '<button id="pNext" class="btn outline small" '+(previewPage+1>=maxPage?'disabled':'')+'>›</button></div></div>';
 }
 
 function transferView(){let mine=assets.filter(a=>a.stock_type==='LIBRE'&&a.state==='ASIGNADO'&&loc(a.location_id)?.kind==='TECNICO'&&(staff()||a.location_id===profile.location_id));let items=transfers.filter(t=>true);return bodyHead('Transferencias supervisadas','Solo equipos LIBRE · solicitud → autorización logística → aceptación del receptor')+
