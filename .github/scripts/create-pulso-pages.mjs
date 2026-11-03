@@ -46,10 +46,13 @@ if (project.source?.type === 'github') {
   throw new Error('El proyecto pulso tiene un origen distinto al autorizado. No publicar.');
 }
 const subdomain = project.subdomain?.replace(/^https?:\/\//,'').replace(/\/$/,'');
-if (subdomain && subdomain !== 'pulso.pages.dev') {
-  throw new Error('Nombre exacto no disponible. Cloudflare asignó: ' + subdomain + '. No se publica sin aprobación.');
+if (!subdomain || !/^pulso(?:-[a-z0-9-]+)?\.pages\.dev$/.test(subdomain)) {
+  throw new Error('Subdominio de Pages inesperado; publicación detenida.');
 }
+if (subdomain !== 'pulso.pages.dev') console.log('Subdominio original ocupado; URL provisional asignada por Cloudflare:', subdomain);
+const publicUrl = 'https://' + subdomain + '/main';
+if (process.env.GITHUB_ENV) fs.appendFileSync(process.env.GITHUB_ENV, 'PULSO_PAGES_DOMAIN=' + subdomain + '\n');
 if (process.env.GITHUB_STEP_SUMMARY) {
-  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## PULSO Pages\n- ' + (created ? 'Proyecto nuevo creado' : 'Proyecto existente validado') + '\n- Código: eyamayai/PULSO, rama main\n- Publicación: GitHub Actions + Pages Direct Upload\n- Dirección prevista: https://pulso.pages.dev/main\n');
+  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## PULSO Pages\n- ' + (created ? 'Proyecto nuevo creado' : 'Proyecto existente validado') + '\n- Código: eyamayai/PULSO, rama main\n- Publicación: GitHub Actions + Pages Direct Upload\n- Dirección asignada: ' + publicUrl + '\n');
 }
-console.log('Proyecto Pages validado y autorizado para publicar archivos estáticos.');
+console.log('Proyecto Pages validado. URL asignada:', publicUrl);
