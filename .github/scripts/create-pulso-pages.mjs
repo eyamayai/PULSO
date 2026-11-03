@@ -6,6 +6,8 @@ if (!/^[a-f0-9]{32}$/i.test(account) || !token) {
   throw new Error('Faltan secretos CLOUDFLARE_ACCOUNT_ID y CLOUDFLARE_PAGES_API_TOKEN.');
 }
 
+const target = process.env.PULSO_PAGES_PROJECT || 'pulso';
+if (!['pulso', 'pulso-mintic'].includes(target)) throw new Error('Proyecto Pages no autorizado.');
 const url = 'https://api.cloudflare.com/client/v4/accounts/' + account + '/pages/projects';
 async function req(method, suffix = '', data) {
   const r = await fetch(url + suffix, {
@@ -17,7 +19,7 @@ async function req(method, suffix = '', data) {
   return {status:r.status, json};
 }
 const problem = result => (result?.errors || []).map(e => String(e.code || '') + ' ' + String(e.message || '')).join(' | ').slice(0,1000);
-let response = await req('GET','/pulso');
+let response = await req('GET','/' + target);
 if (response.status === 401 || response.status === 403) {
   throw new Error('El token requiere Account > Cloudflare Pages > Edit (Pages Write).');
 }
@@ -25,7 +27,7 @@ let created = false;
 if (response.status === 404) {
   // Cloudflare Pages Git integration falla en algunas cuentas nuevas (error 8000011).
   // Direct Upload + GitHub Actions mantiene CI/CD desde el mismo repositorio.
-  response = await req('POST','',{name:'pulso',production_branch:'main'});
+  response = await req('POST','',{name:target,production_branch:'main'});
   if (!response.json.success) throw new Error('Error creando PULSO Pages: ' + (problem(response.json) || 'HTTP '+response.status));
   created = true;
   console.log('Proyecto Cloudflare Pages Direct Upload creado; GitHub Actions será su CI/CD.');
@@ -34,7 +36,7 @@ if (response.status >= 400 || !response.json.success || !response.json.result) {
   throw new Error('No se pudo inspeccionar el proyecto Pages: ' + (problem(response.json) || 'HTTP '+response.status));
 }
 const project = response.json.result;
-if (project.name !== 'pulso' || project.production_branch !== 'main') {
+if (project.name !== target || project.production_branch !== 'main') {
   throw new Error('Proyecto o rama de Pages no coincide con pulso / main.');
 }
 if (project.source?.type === 'github') {
@@ -46,10 +48,11 @@ if (project.source?.type === 'github') {
   throw new Error('El proyecto pulso tiene un origen distinto al autorizado. No publicar.');
 }
 const subdomain = project.subdomain?.replace(/^https?:\/\//,'').replace(/\/$/,'');
-if (!subdomain || !/^pulso(?:-[a-z0-9-]+)?\.pages\.dev$/.test(subdomain)) {
+if (!subdomain || !subdomain.endsWith('.pages.dev') || !subdomain.startsWith(target + (target === 'pulso' ? '-' : '.'))) {
   throw new Error('Subdominio de Pages inesperado; publicación detenida.');
 }
-if (subdomain !== 'pulso.pages.dev') console.log('Subdominio original ocupado; URL provisional asignada por Cloudflare:', subdomain);
+if (target === 'pulso-mintic' && subdomain !== 'pulso-mintic.pages.dev') throw new Error('El nombre exacto pulso-mintic.pages.dev está ocupado. Cloudflare asignó ' + subdomain + '; no se publica.');
+if (target === 'pulso' && subdomain !== 'pulso.pages.dev') console.log('Subdominio original ocupado; URL provisional:', subdomain);
 const publicUrl = 'https://' + subdomain + '/main';
 if (process.env.GITHUB_ENV) fs.appendFileSync(process.env.GITHUB_ENV, 'PULSO_PAGES_DOMAIN=' + subdomain + '\n');
 if (process.env.GITHUB_STEP_SUMMARY) {
