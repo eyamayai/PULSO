@@ -8,7 +8,7 @@ const items = Array.isArray(raw) ? raw : Array.isArray(raw?.result) ? raw.result
 const matches = items.filter(db => db.name === 'pulso-staging-empty');
 if (matches.length !== 1) throw new Error('La D1 pulso-staging-empty debe existir exactamente una vez. Deteniendo despliegue.');
 const id = matches[0].uuid ?? matches[0].id;
-if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
   throw new Error('UUID de D1 inválido. Deteniendo despliegue.');
 }
 const config = JSON.parse(fs.readFileSync(configPath,'utf8'));
