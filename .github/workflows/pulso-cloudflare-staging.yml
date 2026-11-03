@@ -2,6 +2,10 @@ name: PULSO Cloudflare STAGING (manual)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pulso-cloudflare-staging.yml'
 
 permissions:
   contents: read
@@ -72,8 +76,22 @@ jobs:
             echo "[Abrir PULSO]($URL)" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "El cargue de Excel y los movimientos continúan bloqueados." >> "$GITHUB_STEP_SUMMARY"
-            curl --fail --silent --show-error "$URL/api/health" > "$RUNNER_TEMP/pulso-health.json"
-            node --input-type=module -e "import fs from 'node:fs';const x=JSON.parse(fs.readFileSync(process.argv[1]));if(x.app!=='PULSO'||x.operational_imports_enabled!==false)process.exit(1)" "$RUNNER_TEMP/pulso-health.json"
+            # La primera publicación workers.dev puede tardar en propagarse.
+            HEALTH_OK=false
+            for intento in $(seq 1 18); do
+              HTTP_CODE=$(curl --silent --show-error --max-time 10 --output "$RUNNER_TEMP/pulso-health.json" --write-out "%{http_code}" "$URL/api/health" || true)
+              if [ "$HTTP_CODE" = "200" ] && node --input-type=module -e "import fs from 'node:fs';const x=JSON.parse(fs.readFileSync(process.argv[1]));if(x.app!=='PULSO'||x.operational_imports_enabled!==false)process.exit(1)" "$RUNNER_TEMP/pulso-health.json"; then
+                HEALTH_OK=true
+                echo "PULSO API validada correctamente: $URL/api/health"
+                break
+              fi
+              echo "Esperando que Cloudflare active API (intento $intento/18; HTTP $HTTP_CODE)."
+              sleep 5
+            done
+            if [ "$HEALTH_OK" != true ]; then
+              echo "Cloudflare publicó el Worker, pero la API sigue sin responder correctamente." >&2
+              exit 1
+            fi
           else
             echo "Worker publicado. Consulta la URL del dominio workers.dev en el registro de despliegue." >> "$GITHUB_STEP_SUMMARY"
           fi
