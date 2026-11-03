@@ -11,5 +11,11 @@
       "database_id": "REEMPLAZAR_POR_ID_DE_D1_NUEVA",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "assets": {
+    "directory": "./public",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  }
 }
