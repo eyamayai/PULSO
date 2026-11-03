@@ -58,7 +58,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://pulso.pages.dev/main'
+          if [ -z "${PULSO_PAGES_DOMAIN:-}" ]; then
+            echo 'El script de Pages no devolvió el dominio asignado.' >&2
+            exit 1
+          fi
+          URL="https://${PULSO_PAGES_DOMAIN}/main"
           READY=false
           for intento in $(seq 1 18); do
             CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-web.html" --write-out "%{http_code}" "$URL" || true)
@@ -74,6 +78,6 @@ jobs:
             exit 1
           fi
           echo '### PULSO Pages: desplegado y verificado' >> "$GITHUB_STEP_SUMMARY"
-          echo '[Abrir PULSO](https://pulso.pages.dev/main)' >> "$GITHUB_STEP_SUMMARY"
+          echo "[Abrir PULSO]($URL)" >> "$GITHUB_STEP_SUMMARY"
           echo 'Entorno inicial, sin usuarios ni operaciones habilitadas.' >> "$GITHUB_STEP_SUMMARY"
           echo "PULSO publicado y verificado: $URL"
