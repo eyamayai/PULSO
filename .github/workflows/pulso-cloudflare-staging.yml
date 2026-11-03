@@ -1,0 +1,79 @@
+name: PULSO Cloudflare STAGING (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulso-cloudflare-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Crear D1 vacía y publicar vista de pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CI: true
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - name: Obtener rama aislada de PULSO Cloudflare
+        uses: actions/checkout@v4
+        with:
+          ref: feature/cloudflare-fase1-maestras-vacias
+          persist-credentials: false
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verificar credenciales de Cloudflare
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo 'Faltan secretos de GitHub CLOUDFLARE_API_TOKEN o CLOUDFLARE_ACCOUNT_ID.' >&2
+            exit 1
+          fi
+
+      - name: Instalar Wrangler
+        run: npm install --no-save wrangler@4.102.0
+
+      - name: Ejecutar pruebas de seguridad y validación
+        run: npm test
+
+      - name: Identificar o crear exclusivamente PULSO STAGING D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 list --json > "$RUNNER_TEMP/pulso-d1-list.json"
+          if ! node --input-type=module -e "import fs from 'node:fs';const a=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const rows=Array.isArray(a)?a:a.result||[];process.exit(rows.some(x=>x.name==='pulso-staging-empty')?0:1)" "$RUNNER_TEMP/pulso-d1-list.json"; then
+            npx wrangler d1 create pulso-staging-empty
+            npx wrangler d1 list --json > "$RUNNER_TEMP/pulso-d1-list.json"
+          fi
+          node scripts/prepare-db-config.mjs "$RUNNER_TEMP/pulso-d1-list.json"
+
+      - name: Instalar esquema de maestras vacías, sin semillas ni datos históricos
+        run: npx wrangler d1 migrations apply pulso-staging-empty --remote
+
+      - name: Publicar aplicación de pruebas en Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy 2>&1 | tee "$RUNNER_TEMP/pulso-deploy.log"
+          URL=$(grep -Eo 'https://[a-zA-Z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/pulso-deploy.log" | head -n 1 || true)
+          if [ -n "$URL" ]; then
+            echo "## PULSO Cloudflare: entorno de pruebas" >> "$GITHUB_STEP_SUMMARY"
+            echo "[Abrir PULSO]($URL)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "El cargue de Excel y los movimientos continúan bloqueados." >> "$GITHUB_STEP_SUMMARY"
+            curl --fail --silent --show-error "$URL/api/health" > "$RUNNER_TEMP/pulso-health.json"
+            node --input-type=module -e "import fs from 'node:fs';const x=JSON.parse(fs.readFileSync(process.argv[1]));if(x.app!=='PULSO'||x.operational_imports_enabled!==false)process.exit(1)" "$RUNNER_TEMP/pulso-health.json"
+          else
+            echo "Worker publicado. Consulta la URL del dominio workers.dev en el registro de despliegue." >> "$GITHUB_STEP_SUMMARY"
+          fi
