@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pulso-api-staging",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-03",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pulso-staging-empty",
+      "database_id": "REEMPLAZAR_POR_ID_DE_D1_NUEVA",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
