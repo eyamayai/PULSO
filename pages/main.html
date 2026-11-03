@@ -1,58 +1,33 @@
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#064d3d"><meta name="robots" content="noindex,nofollow">
-<title>PULSO | MinTIC - Costa R1</title>
-<style>
-:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#183832;background:#f3f8f6}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;background:radial-gradient(circle at 85% 16%,#2b9f7c64 0,transparent 30%),radial-gradient(circle at 12% 85%,#ffb33b42 0,transparent 32%),linear-gradient(125deg,#073e36 5%,#0a6c58 60%,#11483e);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:22px}
-.wrap{display:flex;align-items:center;justify-content:center;width:100%;max-width:1030px;gap:clamp(20px,5vw,70px)}
-.intro{flex:1;color:#fff;max-width:500px}
-.pulse-mark{display:inline-flex;align-items:center;justify-content:center;border:2px solid #98e4c8;width:56px;height:56px;border-radius:17px;background:#ffffff20;margin-bottom:26px}
-.pulse-mark svg{width:39px}
-.eyebrow{text-transform:uppercase;letter-spacing:3px;font-size:11px;font-weight:800;color:#b9e9d7}
-.intro h1{font-size:clamp(52px,7vw,86px);letter-spacing:-4px;line-height:1;margin:10px 0 24px}
-.intro h2{font-size:clamp(18px,2.3vw,26px);line-height:1.4;font-weight:650;max-width:460px}
-.intro p{color:#c3e9dd;font-size:14px;line-height:1.7;max-width:420px}
-.tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:30px}.tags span{border:1px solid #b3e6d15c;border-radius:30px;padding:9px 13px;font-size:11px;color:#ecfff7}
-.card{background:#fff;border-radius:26px;max-width:430px;width:100%;padding:39px 37px;box-shadow:0 24px 80px #002e2c55;color:#19372e;flex:0 0 43%}
-.brand{text-align:center}.brand svg{width:62px;height:62px}.brand strong{display:block;color:#075a46;font-size:35px;letter-spacing:3px;margin:4px 0}
-.brand small{font-size:10px;letter-spacing:2px;color:#78918a;font-weight:800}
-hr{border:0;border-top:1px solid #e2ebe8;margin:26px 0}
-.card h2{font-size:27px;letter-spacing:-1px;text-align:center;margin:0 0 10px}
-.desc{color:#5a746c;text-align:center;line-height:1.65;font-size:14px;margin:0}
-.project{text-align:center;color:#0d8b65;font-weight:750;margin:14px 0 27px}
-.notice{border:1px solid #ebdcad;background:#fffaf0;color:#7b6338;font-size:12px;line-height:1.6;padding:14px;border-radius:12px;text-align:center;margin-bottom:18px}
-button{width:100%;padding:15px;border:0;border-radius:12px;background:#e5efeb;color:#739185;font-weight:800;font-size:14px;cursor:not-allowed}
-.lock{text-align:center;color:#8a9c95;font-size:11px;margin-top:17px}
-.footer{color:#a8d6c9;font-size:11px;margin-top:38px}
-@media(max-width:760px){.wrap{display:block;max-width:460px}.intro{padding:10px 0 24px;text-align:center}.intro h1{font-size:52px;margin:4px}.intro h2,.intro p{display:none}.pulse-mark{display:none}.tags{justify-content:center;margin-top:14px}.card{padding:29px 24px}}
-</style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#073c36"><meta name="robots" content="noindex,nofollow">
+<title>PULSO | Acceso</title><link rel="icon" href="/pulso-icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/pulso.css">
 </head>
 <body>
-<div class="wrap">
-<section class="intro" aria-label="Presentación del aplicativo">
-<span class="pulse-mark" aria-hidden="true"><svg viewBox="0 0 46 46" fill="none"><path d="M2 25h11l7-16 9 29 7-13h8" stroke="#ffb13b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-<div class="eyebrow">Control logístico y operativo</div>
-<h1>PULSO</h1>
-<h2>Plataforma Unificada de Logística, Seguimiento y Operaciones</h2>
-<p>Una operación conectada: bodegas, técnicos, equipos y movimientos bajo criterios de trazabilidad, validación y control.</p>
-<div class="tags"><span>MinTIC · Costa R1</span><span>DOMINION</span><span>Entorno inicial</span></div>
-</section>
-<section class="card" aria-label="Acceso al portal">
-<div class="brand"><svg aria-hidden="true" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="15" fill="#075a46"/><path d="M8 34h10l8-20 12 37 8-17h10" fill="none" stroke="#ffb02e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-<strong>PULSO</strong><small>PORTAL OPERATIVO</small></div>
-<hr>
-<h2>¡Bienvenido!</h2>
-<p class="desc">Plataforma Unificada de Logística, Seguimiento y Operaciones</p>
-<p class="project">MinTIC - Costa R1</p>
-<div class="notice"><strong>Versión de preparación</strong><br>El ingreso de usuarios todavía no está habilitado. Estamos configurando las maestras, los perfiles y las reglas de seguridad antes de permitir operaciones reales.</div>
-<button type="button" disabled aria-disabled="true">Iniciar sesión · Próximamente</button>
-<div class="lock">◈ Acceso seguro pendiente de activación</div>
-</section>
+<main class="auth-page">
+<div class="auth-panel">
+  <section class="auth-visual" aria-label="Identidad PULSO">
+    <div class="wordmark light"><img src="/pulso-icon.svg" alt=""><div><strong>PULSO</strong><small>MinTIC · COSTA R1</small></div></div>
+    <div class="halo" aria-hidden="true"><img src="/pulso-icon.svg" alt=""></div>
+    <div class="auth-meta"><span class="eyebrow">DOMINION · CLARO</span><h1>Plataforma Unificada de Logística, Seguimiento y Operaciones</h1></div>
+  </section>
+  <section class="auth-content" aria-label="Acceso al sistema">
+    <div class="login-box">
+      <div class="top-identity"><img src="/pulso-icon.svg" alt="Icono PULSO"><span>PORTAL OPERATIVO</span></div>
+      <h2>¡Bienvenido!</h2>
+      <p class="caption">Plataforma Unificada de Logística, Seguimiento y Operaciones</p>
+      <p class="region">MinTIC - Costa R1</p>
+      <div class="field"><label for="email">Correo electrónico</label><input id="email" type="email" autocomplete="email" placeholder="correo@empresa.com" disabled></div>
+      <div class="field"><label for="password">Contraseña</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" disabled></div>
+      <button class="primary" type="button" disabled>Iniciar sesión</button>
+      <div class="auth-foot"><span>Acceso en preparación</span><a class="preview-link" href="/inicio">Vista de inicio</a></div>
+      <div class="auth-bottom">PULSO · MinTIC - Costa R1</div>
+    </div>
+  </section>
 </div>
-<div class="footer">PULSO · DOMINION / Claro · Plataforma en desarrollo, sin datos operativos cargados</div>
+</main>
 </body>
 </html>
