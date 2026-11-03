@@ -1,0 +1,77 @@
+name: Probar pulso-mintic.pages.dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pulso-mintic-test.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulso-mintic-test
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Reservar pulso-mintic y verificar /main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PULSO_PAGES_PROJECT: pulso-mintic
+      CI: true
+    steps:
+      - name: Obtener PULSO desde GitHub
+        uses: actions/checkout@v4
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar archivos de la interfaz
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f pages/main.html
+          test -f pages/index.html
+          grep -q 'Plataforma Unificada de Logística, Seguimiento y Operaciones' pages/main.html
+          grep -q 'MinTIC - Costa R1' pages/main.html
+      - name: Registrar proyecto nuevo manteniendo Pages actual
+        run: node .github/scripts/create-pulso-pages.mjs
+      - name: Publicar sitio en pulso-mintic.pages.dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${PULSO_PAGES_DOMAIN:-}" != 'pulso-mintic.pages.dev' ]; then
+            echo 'No se obtuvo el subdominio exacto requerido.' >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/pulso-mintic-public"
+          cp pages/index.html pages/main.html pages/_headers "$RUNNER_TEMP/pulso-mintic-public/"
+          npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-mintic-public" --project-name pulso-mintic --branch main
+      - name: Comprobar acceso desde Internet
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://pulso-mintic.pages.dev/main'
+          VERIFIED=false
+          for attempt in $(seq 1 18); do
+            STATUS=$(curl --silent --show-error --location --max-time 12 --output "$RUNNER_TEMP/pulso-mintic.html" --write-out "%{http_code}" "$URL" || true)
+            if [ "$STATUS" = 200 ] && grep -q 'Plataforma Unificada de Logística, Seguimiento y Operaciones' "$RUNNER_TEMP/pulso-mintic.html" && grep -q 'MinTIC - Costa R1' "$RUNNER_TEMP/pulso-mintic.html"; then
+              VERIFIED=true
+              break
+            fi
+            echo "Verificando /main ($attempt/18), HTTP $STATUS"
+            sleep 5
+          done
+          if [ "$VERIFIED" != true ]; then
+            echo 'No se pudo confirmar el sitio público.' >&2
+            exit 1
+          fi
+          echo '## PULSO / Pages MinTIC' >> "$GITHUB_STEP_SUMMARY"
+          echo '[Abrir PULSO](https://pulso-mintic.pages.dev/main)' >> "$GITHUB_STEP_SUMMARY"
+          echo 'El sitio original se conserva. No se han importado datos ni habilitado movimientos.' >> "$GITHUB_STEP_SUMMARY"
+          echo "PULSO publicado y verificado: $URL"
