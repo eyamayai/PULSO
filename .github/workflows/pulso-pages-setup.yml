@@ -1,42 +1,79 @@
-name: Crear PULSO en Cloudflare Pages (GitHub)
+name: Publicar PULSO en Cloudflare Pages (GitHub Actions)
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
+      - 'pages/**'
+      - '.github/scripts/create-pulso-pages.mjs'
       - '.github/workflows/pulso-pages-setup.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: pulso-pages-setup
+  group: pulso-pages-main
   cancel-in-progress: false
 
 jobs:
-  create_pages:
-    name: Crear Pages y conectar repositorio PULSO
+  deploy:
+    name: Crear Pages y publicar /main
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CI: true
     steps:
-      - name: Obtener código desde GitHub
+      - name: Obtener la versión autorizada de PULSO en GitHub
         uses: actions/checkout@v4
 
-      - name: Instalar Node.js
+      - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Verificar que la interfaz está preparada
+      - name: Comprobar contenido aprobado de la pantalla inicial
         run: |
+          set -euo pipefail
           test -f pages/main.html
           test -f pages/index.html
+          test -f pages/_headers
           grep -q 'Plataforma Unificada de Logística, Seguimiento y Operaciones' pages/main.html
           grep -q 'MinTIC - Costa R1' pages/main.html
 
-      - name: Crear Pages con GitHub y solicitar publicación
+      - name: Crear o verificar Pages pulso con los permisos delegados
         run: node .github/scripts/create-pulso-pages.mjs
+
+      - name: Publicar PULSO usando Wrangler y GitHub Actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pulso-public"
+          cp pages/index.html pages/main.html pages/_headers "$RUNNER_TEMP/pulso-public/"
+          npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso --branch main
+
+      - name: Verificar página pública y mostrar enlace
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://pulso.pages.dev/main'
+          READY=false
+          for intento in $(seq 1 18); do
+            CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-web.html" --write-out "%{http_code}" "$URL" || true)
+            if [ "$CODE" = '200' ] && grep -q 'Plataforma Unificada de Logística, Seguimiento y Operaciones' "$RUNNER_TEMP/pulso-web.html" && grep -q 'MinTIC - Costa R1' "$RUNNER_TEMP/pulso-web.html"; then
+              READY=true
+              break
+            fi
+            echo "Verificando publicación, intento $intento/18, HTTP $CODE"
+            sleep 5
+          done
+          if [ "$READY" != true ]; then
+            echo 'Cloudflare confirmó la subida, pero /main aún no pasa la verificación pública.' >&2
+            exit 1
+          fi
+          echo '### PULSO Pages: desplegado y verificado' >> "$GITHUB_STEP_SUMMARY"
+          echo '[Abrir PULSO](https://pulso.pages.dev/main)' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Entorno inicial, sin usuarios ni operaciones habilitadas.' >> "$GITHUB_STEP_SUMMARY"
+          echo "PULSO publicado y verificado: $URL"
