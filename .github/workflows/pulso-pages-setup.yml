@@ -89,9 +89,20 @@ jobs:
           echo "[Abrir PULSO]($URL)" >> "$GITHUB_STEP_SUMMARY"
           echo 'Entorno inicial, sin usuarios ni operaciones habilitadas.' >> "$GITHUB_STEP_SUMMARY"
           HOME_URL="https://${PULSO_PAGES_DOMAIN}/inicio"
-          HOME_CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-inicio.html" --write-out "%{http_code}" "$HOME_URL")
-          if [ "$HOME_CODE" != 200 ] || ! grep -q 'Aplicaciones' "$RUNNER_TEMP/pulso-inicio.html"; then
-            echo "Inicio no disponible: HTTP $HOME_CODE" >&2
+          HOME_OK=false
+          for intento in $(seq 1 18); do
+            HOME_CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-inicio.html" --write-out "%{http_code}" "$HOME_URL" || true)
+            if [ "$HOME_CODE" = "200" ] && grep -q 'Aplicaciones' "$RUNNER_TEMP/pulso-inicio.html"; then
+              HOME_OK=true
+              break
+            fi
+            echo "Esperando propagación de Inicio ($intento/18; HTTP $HOME_CODE)"
+            sleep 5
+          done
+          if [ "$HOME_OK" != true ]; then
+            echo "Inicio no disponible o contenido no reconocido (HTTP $HOME_CODE)" >&2
+            echo "Fragmento devuelto por Cloudflare:"
+            head -c 350 "$RUNNER_TEMP/pulso-inicio.html" || true
             exit 1
           fi
           echo "[Ver Inicio]($HOME_URL)" >> "$GITHUB_STEP_SUMMARY"
