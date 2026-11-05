@@ -114,6 +114,12 @@ function securePage(response) {
 
 /* Maestras: only ADMIN can read or edit. No registrations or operational imports. */
 const DEPARTMENTS = new Set(['CESAR','LA GUAJIRA','SAN ANDRES']);
+function canonicalDepartment(value) {
+  const v=trimmed(value,60).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  if(v==='GUAJIRA'||v==='LA GUAJIRA')return 'LA GUAJIRA';
+  if(v==='SAN ANDRES'||v==='SAN ANDRES Y PROVIDENCIA')return 'SAN ANDRES';
+  return v;
+}
 const PROFILE_TYPES = new Set(['CON PERFIL DE SERIE','SIN PERFIL DE SERIE']);
 const CODE_TYPES = new Set(['EQUIPO','MATERIAL']);
 const POSITIONS = new Set(['SUPERVISOR','TECNICO']);
@@ -141,7 +147,7 @@ function normalizePersonnel(d) {
     document_number:trimmed(d.document_number,25).toUpperCase(),
     full_name:trimmed(d.full_name,120),
     position:trimmed(d.position,15).toUpperCase(),
-    department:trimmed(d.department,25).toUpperCase(),
+    department:canonicalDepartment(d.department),
     zone:trimmed(d.zone,80),
     city_base:trimmed(d.city_base,80),
     supervisor_id:trimmed(d.supervisor_id,80),
@@ -303,7 +309,11 @@ async function bulkImport(request,env,user){
       supervisor_id:kind==='TECNICOS'?placeholder:''
     }):normalizeCatalog({...rawItem,unit:rawItem.unit||'UND'});
     if(!data){
-      addError(row,'Datos','Falta información o existe un valor/formato inválido');
+      if(personal&&!DEPARTMENTS.has(canonicalDepartment(rawItem.department))){
+        addError(row,'Departamento','Departamento no reconocido. Usa Cesar, Guajira o San Andrés');
+      }else{
+        addError(row,'Datos','Falta información o existe un valor/formato inválido');
+      }
       continue;
     }
     if(kind==='TECNICOS'){
