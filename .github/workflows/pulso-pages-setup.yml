@@ -56,13 +56,13 @@ jobs:
           grep -q 'acceso-login.js' pages/main.html
           grep -q 'inicio-session.js' pages/inicio.html
           grep -q 'Aplicaciones' pages/inicio.html
-          grep -q 'logo-original-encuadrado.webp' pages/inicio.html
+          grep -q 'class="brand"' pages/inicio.html
+          grep -q 'src="/icono-original.webp"' pages/inicio.html
           grep -q 'icono-original.webp' pages/inicio.html
           grep -q 'inicio-ui.js' pages/inicio.html
           grep -q 'class="sidebar"' pages/inicio.html
           grep -q 'class="topbar"' pages/inicio.html
           grep -q 'id="module-search"' pages/inicio.html
-          grep -q '14' <(echo 14)
           grep -q '#052b27' pages/pulso.css
           grep -q 'grid-template-columns:repeat(7' pages/pulso.css
           test "$(grep -o 'class="module-tile"' pages/inicio.html | wc -l)" -eq 14
