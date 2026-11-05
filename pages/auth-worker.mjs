@@ -118,12 +118,12 @@ const PROFILE_TYPES = new Set(['CON PERFIL DE SERIE','SIN PERFIL DE SERIE']);
 const CODE_TYPES = new Set(['EQUIPO','MATERIAL']);
 const POSITIONS = new Set(['SUPERVISOR','TECNICO']);
 const masterBad = (code, status = 400) => json({ok:false,error:code},status);
-const trimmed = (v,max=120) => typeof v === 'string' ? v.trim().replace(/\\s+/g,' ').slice(0,max+1) : '';
-const emailOk = v => !v || (/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(v) && v.length<=254);
+const trimmed = (v,max=120) => typeof v === 'string' ? v.trim().replace(/\s+/g,' ').slice(0,max+1) : '';
+const emailOk = v => !v || (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && v.length<=254);
 const fieldsOf = (o, allowed) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).every(k=>allowed.includes(k));
 async function masterBody(request) {
   if (!sameOrigin(request)) return {error: 'ORIGEN_NO_AUTORIZADO',status:403};
-  if (!/application\\/json/i.test(request.headers.get('content-type')||'')) return {error:'TIPO_NO_VALIDO',status:415};
+  if (!/application\/json/i.test(request.headers.get('content-type')||'')) return {error:'TIPO_NO_VALIDO',status:415};
   const text = await request.text();
   if (text.length>6000) return {error:'DATOS_INVALIDOS',status:400};
   try {
