@@ -10,7 +10,9 @@
 <link rel="stylesheet" href="/pulso.css">
 <link rel="stylesheet" href="/maestras.css">
 <script src="/inicio-session.js" defer></script>
+<script src="/exceljs.min.js" defer></script>
 <script src="/maestras.js" defer></script>
+<script src="/maestras-import.js" defer></script>
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
@@ -80,7 +82,8 @@
      <button type="button" role="tab" class="master-tab active" id="tab-personal" aria-selected="true" data-tab="personal">Personal <span id="personal-count">0</span></button>
      <button type="button" role="tab" class="master-tab" id="tab-catalogo" aria-selected="false" data-tab="catalogo">Equipos y materiales <span id="catalogo-count">0</span></button>
     </div>
-    <button type="button" id="new-record" class="master-primary"><span aria-hidden="true">＋</span> Nuevo registro</button>
+    <div class="master-top-actions"><button type="button" id="bulk-open" class="master-secondary">Carga masiva Excel</button>
+    <button type="button" id="new-record" class="master-primary"><span aria-hidden="true">＋</span> Nuevo registro</button></div>
    </div>
    <div class="master-toolbar">
     <div class="master-search"><svg class="ic" aria-hidden="true"><use href="#ico-search"></use></svg><input type="search" id="master-filter" placeholder="Buscar registros..." autocomplete="off" aria-label="Buscar registros"></div>
@@ -132,5 +135,36 @@
 </dialog>
  </div>
 </div>
+<dialog id="bulk-dialog" class="record-dialog bulk-dialog" aria-labelledby="bulk-title">
+  <div class="bulk-dialog-inner">
+    <header class="dialog-head">
+      <div><span class="master-eyebrow">IMPORTACIÓN CONTROLADA</span><h2 id="bulk-title">Carga masiva</h2></div>
+      <button id="bulk-close" type="button" class="dialog-x" aria-label="Cerrar">×</button>
+    </header>
+    <div class="bulk-grid">
+      <label>Tipo de maestra
+        <select id="bulk-kind">
+          <option value="SUPERVISORES">Supervisores</option>
+          <option value="TECNICOS">Técnicos</option>
+          <option value="CATALOGO">Equipos y materiales</option>
+        </select>
+      </label>
+      <button id="bulk-template" class="master-secondary" type="button">Descargar plantilla Excel</button>
+    </div>
+    <p class="bulk-note" id="bulk-note">Registra primero los supervisores; después podrás cargar técnicos vinculados por identificación.</p>
+    <label class="bulk-picker" for="bulk-file"><strong>Seleccionar archivo .xlsx</strong><span>Hasta 1.000 registros por archivo · máximo 5 MB</span>
+      <input id="bulk-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+    </label>
+    <div id="bulk-results" class="bulk-results" aria-live="polite"></div>
+    <div class="bulk-table-container" id="bulk-preview-area" hidden>
+      <table class="bulk-preview-table"><thead id="bulk-preview-head"></thead><tbody id="bulk-preview-body"></tbody></table>
+    </div>
+    <footer class="dialog-actions bulk-actions">
+      <button id="bulk-cancel" class="master-secondary" type="button">Cancelar</button>
+      <button id="bulk-check" class="master-secondary" type="button" disabled>Validar Excel</button>
+      <button id="bulk-confirm" class="master-primary" type="button" disabled>Importar registros</button>
+    </footer>
+  </div>
+</dialog>
 </body>
 </html>

@@ -122,3 +122,80 @@ test('Solo ADMIN edita maestras y POST bloquea otros orígenes',async()=>{
  assert.equal(forbidden.status,403);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,0);
 });
+
+async function importReq(x,cookie,kind,rows,mode='validate',origin=root){
+  return worker.fetch(x.req('/api/maestras/import',{method:'POST',origin,
+    headers:{cookie},data:{kind,mode,rows}}),x.env);
+}
+const bulkSupervisor=(number='8000000',name='Supervisor Operativo')=>({
+  document_number:number,full_name:name,department:'CESAR',zone:'Cesar R1',
+  email:'',phone:'',is_active:true
+});
+const bulkTech=(number='9000000',supervisor='8000000')=>({
+  document_number:number,full_name:'Técnico de campo '+number,department:'CESAR',
+  city_base:'Valledupar',supervisor_document:supervisor,email:'',phone:'',is_active:true
+});
+const bulkSap=(code='0000100001')=>({
+  sap_code:code,description:'Equipo de telecomunicaciones',item_type:'EQUIPO',
+  serial_profile:'CON PERFIL DE SERIE',unit:'UND',family:'Acceso',is_active:true
+});
+test('Carga masiva: preview no escribe y 60 supervisores se insertan de una vez con auditoría',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const items=Array.from({length:60},(_,i)=>bulkSupervisor(String(8000000+i),'Supervisor '+i));
+  let res=await importReq(x,cookie,'SUPERVISORES',items);
+  assert.equal(res.status,200);
+  assert.equal((await res.json()).valid,true);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
+  res=await importReq(x,cookie,'SUPERVISORES',items,'commit');
+  assert.equal(res.status,201);assert.equal((await res.json()).inserted,60);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,60);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_audit').get().n,60);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,1);
+  res=await importReq(x,cookie,'SUPERVISORES',items);
+  assert.equal((await res.json()).valid,false);
+  res=await importReq(x,cookie,'SUPERVISORES',items,'commit');
+  assert.equal(res.status,422);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,60);
+});
+test('Carga masiva: 80 técnicos solo con supervisores activos existentes',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  assert.equal((await importReq(x,cookie,'SUPERVISORES',[bulkSupervisor()],'commit')).status,201);
+  const items=Array.from({length:80},(_,i)=>bulkTech(String(9000000+i)));
+  const invalid=[...items.slice(0,40),bulkTech('9999999','1111222'),...items.slice(40)];
+  let res=await importReq(x,cookie,'TECNICOS',invalid,'commit');
+  assert.equal(res.status,422);
+  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM master_personnel WHERE position='TECNICO'").get().n,0);
+  res=await importReq(x,cookie,'TECNICOS',items,'commit');
+  assert.equal(res.status,201);
+  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM master_personnel WHERE position='TECNICO'").get().n,80);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,1);
+});
+test('Carga masiva: 200 SAP con ceros iniciales y bloqueo integral por fila inválida o duplicada',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const items=Array.from({length:200},(_,i)=>bulkSap(String(100000+i).padStart(10,'0')));
+  let res=await importReq(x,cookie,'CATALOGO',[...items,{...items[0],sap_code:'0000123999',serial_profile:'SIN INFORMACION'}],'commit');
+  assert.equal(res.status,422);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,0);
+  res=await importReq(x,cookie,'CATALOGO',[...items,items[1]],'commit');
+  assert.equal(res.status,422);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,0);
+  res=await importReq(x,cookie,'CATALOGO',items,'commit');
+  assert.equal(res.status,201);assert.equal((await res.json()).inserted,200);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,200);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_audit').get().n,200);
+  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM master_sap_catalog WHERE sap_code LIKE '0000%'").get().n,200);
+});
+test('Carga masiva: protegida por rol, origen, formato y cantidad',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  let r=await importReq(x,'','SUPERVISORES',[bulkSupervisor()],'commit');
+  assert.equal(r.status,401);
+  r=await importReq(x,cookie,'SUPERVISORES',[bulkSupervisor()],'commit','https://origen-externo.example');
+  assert.equal(r.status,403);
+  const oversize=Array.from({length:1001},(_,i)=>bulkSupervisor(String(8000000+i)));
+  r=await importReq(x,cookie,'SUPERVISORES',oversize,'commit');
+  assert.equal(r.status,400);
+  x.database.prepare("UPDATE app_users SET role='AUDITOR' WHERE email='admin@example.com'").run();
+  r=await importReq(x,cookie,'SUPERVISORES',[bulkSupervisor()],'commit');
+  assert.equal(r.status,403);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
+});

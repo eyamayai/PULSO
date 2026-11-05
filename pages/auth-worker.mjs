@@ -252,6 +252,133 @@ async function masterHandler(request,env,user,path){
   return json({ok:true,id,action},editing?200:201);
 }
 
+
+/**
+ * Carga masiva de maestras: vista previa y guardado atómico por archivo.
+ * La hoja de técnicos referencia supervisores EXISTENTES por identificación.
+ * Cada request usa JSON parametrizado para reducir consultas D1.
+ */
+const IMPORT_MAX_ROWS = 1000;
+const IMPORT_MAX_BYTES = 540000;
+const IMPORT_TYPES = new Set(['SUPERVISORES','TECNICOS','CATALOGO']);
+const IMPORT_COLUMNS = {
+  SUPERVISORES:['document_number','full_name','department','zone','email','phone','is_active'],
+  TECNICOS:['document_number','full_name','department','city_base','supervisor_document','email','phone','is_active'],
+  CATALOGO:['sap_code','description','item_type','serial_profile','unit','family','is_active']
+};
+async function bulkImport(request,env,user){
+  if(!user)return masterBad('NO_AUTENTICADO',401);
+  if(user.role!=='ADMIN')return masterBad('SIN_PERMISOS',403);
+  if(request.method!=='POST')return masterBad('METODO_NO_PERMITIDO',405);
+  if(!sameOrigin(request))return masterBad('ORIGEN_NO_AUTORIZADO',403);
+  if(!/application\/json/i.test(request.headers.get('content-type')||''))return masterBad('TIPO_NO_VALIDO',415);
+  const raw=await request.text();
+  if(raw.length>IMPORT_MAX_BYTES)return masterBad('ARCHIVO_DEMASIADO_GRANDE',413);
+  let input;
+  try{input=JSON.parse(raw);}catch{return masterBad('DATOS_INVALIDOS');}
+  if(!input||typeof input!=='object'||Array.isArray(input)||
+     !['validate','commit'].includes(input.mode)||!IMPORT_TYPES.has(input.kind)||
+     !Array.isArray(input.rows)||input.rows.length<1||input.rows.length>IMPORT_MAX_ROWS ||
+     Object.keys(input).some(k=>!['kind','mode','rows'].includes(k)))return masterBad('ARCHIVO_INVALIDO');
+  const kind=input.kind, personal=kind!=='CATALOGO';
+  const allowed=IMPORT_COLUMNS[kind];
+  const errors=[];
+  const addError=(row,field,reason)=>{if(errors.length<40)errors.push({row,field,message:reason});};
+  const keys=new Map();
+  const normalized=[];
+  const placeholder='00000000-0000-4000-8000-000000000000';
+  for(let i=0;i<input.rows.length;i++){
+    const row=i+2,rawItem=input.rows[i];
+    if(!fieldsOf(rawItem,allowed)){
+      addError(row,'Columnas','Columnas inesperadas o registro no válido');
+      continue;
+    }
+    if(rawItem.is_active!==undefined&&![true,false,0,1].includes(rawItem.is_active)){
+      addError(row,'Estado','El estado debe ser Activo o Inactivo');
+      continue;
+    }
+    const data=personal?normalizePersonnel({
+      ...rawItem,
+      position:kind==='SUPERVISORES'?'SUPERVISOR':'TECNICO',
+      supervisor_id:kind==='TECNICOS'?placeholder:''
+    }):normalizeCatalog({...rawItem,unit:rawItem.unit||'UND'});
+    if(!data){
+      addError(row,'Datos','Falta información o existe un valor/formato inválido');
+      continue;
+    }
+    if(kind==='TECNICOS'){
+      const supervisorDoc=trimmed(rawItem.supervisor_document,25).toUpperCase();
+      if(!/^[A-Z0-9-]{4,25}$/.test(supervisorDoc)){
+        addError(row,'Identificación Supervisor','Debes indicar la identificación del supervisor');
+        continue;
+      }
+      data.supervisor_document=supervisorDoc;
+    }
+    const key=personal?data.document_number:data.sap_code;
+    if(keys.has(key)){addError(row,personal?'Identificación':'Código SAP','Duplicado dentro del archivo (fila '+keys.get(key)+')');continue;}
+    keys.set(key,row);
+    data.id=crypto.randomUUID();
+    data.audit_id=crypto.randomUUID();
+    normalized.push(data);
+  }
+  if(normalized.length){
+    const table=personal?'master_personnel':'master_sap_catalog';
+    const column=personal?'document_number':'sap_code';
+    const existing=await env.DB.prepare(
+      `SELECT ${column} AS code FROM ${table} WHERE ${column} IN (SELECT value FROM json_each(?))`
+    ).bind(JSON.stringify([...keys.keys()])).all();
+    for(const found of existing.results||[]){
+      const key=String(found.code).toUpperCase();
+      addError(keys.get(key)||2,personal?'Identificación':'Código SAP',
+        personal?'Identificación ya registrada en la maestra':'Código SAP ya registrado en la maestra');
+    }
+    if(kind==='TECNICOS'){
+      const docs=[...new Set(normalized.map(r=>r.supervisor_document))];
+      const supervisors=await env.DB.prepare(
+        `SELECT id,document_number,is_active FROM master_personnel
+           WHERE position='SUPERVISOR' AND document_number IN (SELECT value FROM json_each(?))`
+      ).bind(JSON.stringify(docs)).all();
+      const bosses=new Map((supervisors.results||[]).filter(b=>b.is_active===1).map(b=>[b.document_number.toUpperCase(),b.id]));
+      for(const item of normalized){
+        const id=bosses.get(item.supervisor_document);
+        if(!id)addError(keys.get(item.document_number),'Identificación Supervisor','Supervisor no registrado o inactivo');
+        else item.supervisor_id=id;
+        delete item.supervisor_document;
+      }
+    }
+  }
+  if(errors.length){
+    if(input.mode==='validate')return json({ok:true,valid:false,total:input.rows.length,errors});
+    return json({ok:false,error:'ARCHIVO_CON_ERRORES',total:input.rows.length,errors},422);
+  }
+  if(input.mode==='validate')return json({ok:true,valid:true,total:normalized.length,errors:[]});
+  const fields=personal
+    ? ['id','document_number','full_name','position','department','zone','city_base','supervisor_id','email','phone','is_active']
+    : ['id','sap_code','description','item_type','serial_profile','unit','family','is_active'];
+  const jsonRows=JSON.stringify(normalized);
+  const selects=fields.map(k=>`json_extract(value,'$.${k}')`).join(',');
+  const table=personal?'master_personnel':'master_sap_catalog';
+  const entity=personal?'PERSONAL':'CATALOGO_SAP';
+  const insert=env.DB.prepare(
+    `INSERT INTO ${table} (${fields.join(',')},created_by,updated_by)
+      SELECT ${selects},?,? FROM json_each(?)`
+  ).bind(user.id,user.id,jsonRows);
+  const audit=env.DB.prepare(
+    `INSERT INTO master_audit(id,entity,record_id,action,actor_id,changed_fields)
+      SELECT json_extract(value,'$.audit_id'),? ,json_extract(value,'$.id'),'CREAR',?,?
+      FROM json_each(?)`
+  ).bind(entity,user.id,JSON.stringify(fields),jsonRows);
+  try {
+    await env.DB.batch([insert,audit]);
+  } catch(e) {
+    if(/UNIQUE|constraint|FOREIGN KEY|SUPERVISOR_/i.test(String(e))){
+      return masterBad('CONFLICTO_IMPORTACION',409);
+    }
+    throw e;
+  }
+  return json({ok:true,inserted:normalized.length,total:normalized.length},201);
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
@@ -262,6 +389,7 @@ export default {
           await env.DB.prepare('SELECT id FROM app_users LIMIT 1').first();
           return json({ok: true, service: 'pulso-auth', ready: true});
         }
+        if (pathname === '/api/maestras/import') return await bulkImport(request,env,await currentUser(request,env));
         if (pathname.startsWith('/api/maestras/')) return await masterHandler(request,env,await currentUser(request,env),pathname);
         if (pathname === '/maestras' || pathname === '/maestras.html') {
           if(request.method!=='GET'&&request.method!=='HEAD')return masterBad('METODO_NO_PERMITIDO',405);

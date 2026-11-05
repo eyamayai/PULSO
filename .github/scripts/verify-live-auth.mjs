@@ -25,6 +25,15 @@ for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const data=await result.json();
   if(!data.ok||!Array.isArray(data.items))throw new Error('Respuesta inválida de '+endpoint);
 }
+const invalidBulk=await fetch(origin+'/api/maestras/import',{
+  method:'POST',redirect:'manual',
+  headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
+  body:JSON.stringify({kind:'CATALOGO',mode:'validate',rows:[{sap_code:'',description:''}]})
+});
+if(invalidBulk.status!==200)throw new Error('No se pudo validar la importación masiva, HTTP '+invalidBulk.status);
+const preview=await invalidBulk.json();
+if(!preview.ok||preview.valid!==false||!preview.errors?.length)
+  throw new Error('La validación masiva no rechazó un registro inválido');
 const logout=await fetch(origin+'/api/auth/logout',{method:'POST',redirect:'manual',headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},body:'{}'});
 if(!logout.ok)throw new Error('Falló el cierre de sesión');
 const after=await fetch(origin+'/inicio',{redirect:'manual',headers:{Cookie:cookie}});

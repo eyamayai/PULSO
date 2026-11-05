@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -62,6 +62,9 @@ jobs:
           grep -q 'id="tab-personal"' pages/maestras.html
           grep -q 'id="tab-catalogo"' pages/maestras.html
           node --check pages/maestras.js
+          node --check pages/maestras-import.js
+          grep -q 'maestras-import.js' pages/maestras.html
+          grep -q 'exceljs.min.js' pages/maestras.html
           grep -q 'srcset="/icono-original.webp"' pages/inicio.html
           grep -q 'icono-original.webp' pages/inicio.html
           grep -q 'inicio-ui.js' pages/inicio.html
@@ -80,6 +83,14 @@ jobs:
 
       - name: Pruebas unitarias de autenticación
         run: node --test --disable-warning=ExperimentalWarning test/auth.test.mjs
+
+      - name: Preparar lector de Excel para carga masiva (ExcelJS 4.4.0)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pulso-excel"
+          npm install --prefix "$RUNNER_TEMP/pulso-excel" --no-save --ignore-scripts --no-audit --no-fund --silent exceljs@4.4.0
+          test -s "$RUNNER_TEMP/pulso-excel/node_modules/exceljs/dist/exceljs.min.js"
 
       - name: Validar proyecto Pages
         env:
@@ -118,7 +129,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp "$RUNNER_TEMP/pulso-excel/node_modules/exceljs/dist/exceljs.min.js" "$RUNNER_TEMP/pulso-public/exceljs.min.js"
           cp pages/auth-worker.mjs "$RUNNER_TEMP/pulso-public/_worker.js"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
 
@@ -150,7 +162,8 @@ jobs:
           MAESTRAS_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/maestras" || true)
           PERSONAL_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/maestras/personal" || true)
           CATALOGO_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/maestras/catalogo" || true)
-          if [ "$MAESTRAS_HTTP" != '302' ] || [ "$PERSONAL_HTTP" != '401' ] || [ "$CATALOGO_HTTP" != '401' ]; then
+          IMPORT_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/maestras/import" || true)
+          if [ "$MAESTRAS_HTTP" != '302' ] || [ "$PERSONAL_HTTP" != '401' ] || [ "$CATALOGO_HTTP" != '401' ] || [ "$IMPORT_HTTP" != '401' ]; then
             echo "Maestras no está protegida: página=$MAESTRAS_HTTP personal=$PERSONAL_HTTP catalogo=$CATALOGO_HTTP" >&2
             exit 1
           fi
@@ -161,7 +174,7 @@ jobs:
               exit 1
             fi
           done
-          for asset in inicio-ui.js pulso.css maestras.js maestras.css; do
+          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js maestras.css exceljs.min.js; do
             CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
             if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
               echo "Falta recurso de Inicio: $asset (HTTP $CODE)" >&2

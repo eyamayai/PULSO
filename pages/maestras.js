@@ -215,6 +215,11 @@
   $('dialog-cancel').addEventListener('click',()=>$('record-dialog').close());
   $('record-form').addEventListener('submit',save);
   $('record-dialog').addEventListener('close',()=>dialogError(''));
+  window.addEventListener('pulso:maestras-imported',async e=>{
+    setTab(e.detail.kind==='CATALOGO'?'catalogo':'personal');
+    await refresh();
+    message('Carga masiva completada: '+e.detail.count+' registros.');
+  });
   setTab('personal');
   void refresh();
 })();

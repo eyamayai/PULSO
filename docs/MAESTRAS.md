@@ -24,3 +24,16 @@ La tabla `app_users` es independiente de `master_personnel`. Dar de alta un supe
 La migración idempotente `cloudflare/migrations/0004_maestras_personal_y_sap.sql` incorpora tablas nuevas a D1 sin importar información previa ni alterar movimientos. Se ejecuta mediante GitHub Actions como parte del despliegue de Pages. Se mantiene la validación de que `/maestras` exige sesión y que las APIs son privadas.
 
 Esta es la primera versión de captura individual. La importación masiva de Excel, las maestras de bodegas, los permisos granulares y la administración segura de contraseñas quedan para fases posteriores. Es crucial conservar la regla: **un Excel no puede crear maestros implícitamente**.
+
+
+## Carga masiva de Excel (.xlsx)
+
+El administrador puede utilizar **Carga masiva Excel** en Maestras para descargar plantillas de **Supervisores**, **Técnicos** y **Equipos y materiales**. Las plantillas incluyen encabezados estandarizados y columnas de identificación/código SAP como texto, preservando ceros iniciales.
+
+Orden recomendado: primero supervisores, después técnicos asociados por **identificación del supervisor**, y luego catálogo SAP. Los técnicos no crean cuentas de usuario. Cada plantilla contiene una sola hoja; máximo 1.000 registros o 5 MB por archivo. Se valida toda la carga antes de permitir la confirmación.
+
+El cliente interpreta el archivo en el navegador mediante ExcelJS 4.4.0, distribuido por Pages. El servidor **vuelve a validar** todos los registros contra D1: tipos, campos obligatorios, referencias, duplicados internos y existentes. La importación usa una transacción D1 con dos instrucciones SQL parametrizadas que insertan registros y auditoría. Ante un error, se revierte toda la carga y no se acepta una importación parcial. No hay inserciones silenciosas desde un Excel ni se reconocen bodegas, usuarios o SAP desconocidos.
+
+La validación preliminar no persiste registros. Al confirmar se vuelve a validar para contemplar cambios concurrentes. Si dos operadores intentan cargar los mismos códigos, las restricciones únicas de base de datos detienen la segunda operación. Los errores señalan el número de fila. El sistema nunca permite sobreescritura automática de registros existentes: las actualizaciones se realizan en la ficha individual por el administrador.
+
+Los archivos Excel solo se interpretan como datos, las fórmulas no se ejecutan ni se aceptan. El servidor no utiliza macros ni evalúa expresiones de la hoja.
