@@ -8,6 +8,7 @@
 <title>PULSO | Acceso</title>
 <link rel="icon" type="image/webp" href="/icono-original.webp">
 <link rel="stylesheet" href="/acceso.css">
+<script src="/acceso-login.js" defer></script>
 </head>
 <body>
 <main class="login-page">
@@ -32,15 +33,16 @@
         <label class="sr-only" for="login-email">Correo electrónico</label>
         <div class="field">
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg>
-          <input id="login-email" type="email" placeholder="Correo electrónico" autocomplete="username" disabled>
+          <input id="login-email" type="email" placeholder="Correo electrónico" autocomplete="username" inputmode="email" maxlength="254" required>
         </div>
         <label class="sr-only" for="login-password">Contraseña</label>
         <div class="field">
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
-          <input id="login-password" type="password" placeholder="Contraseña" autocomplete="current-password" disabled>
+          <input id="login-password" type="password" placeholder="Contraseña" autocomplete="current-password" maxlength="128" required>
         </div>
-        <button class="sign-in" type="button" disabled aria-label="Iniciar sesión: acceso aún no habilitado">Iniciar sesión</button>
+        <button class="sign-in" type="submit">Iniciar sesión</button>
       </form>
+      <p id="login-status" class="login-status" aria-live="polite" role="status"></p>
       <p class="project-label">MinTIC · Costa R1</p>
     </div>
   </section>

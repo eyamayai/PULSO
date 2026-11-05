@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - 'pages/**'
+      - 'cloudflare/migrations/0002_autenticacion.sql'
+      - 'test/auth.test.mjs'
+      - '.github/scripts/prepare-cloudflare-auth.mjs'
+      - '.github/scripts/bootstrap-admin.mjs'
       - '.github/scripts/create-pulso-pages.mjs'
       - '.github/workflows/pulso-pages-setup.yml'
 
@@ -18,112 +22,124 @@ concurrency:
 
 jobs:
   deploy:
-    name: Publicar pulso-mintic.pages.dev/main
+    name: Autenticación PULSO + Pages y D1
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_PAGES_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PULSO_PAGES_PROJECT: pulso-mintic
       CI: true
     steps:
-      - name: Obtener la versión autorizada de PULSO en GitHub
+      - name: Obtener PULSO de GitHub
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Preparar Node.js
+      - name: Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Comprobar contenido aprobado de la pantalla inicial
+      - name: Verificar imagen original y código seguro
+        shell: bash
         run: |
           set -euo pipefail
-          test -f pages/main.html
-          test -f pages/index.html
-          test -f pages/_headers
-          test -f pages/inicio.html
-          test -f pages/pulso.css
-          test -f pages/pulso-icon.svg
-          test -s pages/logo-original.webp
-          test -s pages/logo-original-encuadrado.webp
-          test -s pages/icono-original.webp
-          test -s pages/acceso.css
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql; do
+            test -s "$file"
+          done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
-          grep -q 'icono-original.webp' pages/main.html
-          grep -q 'acceso.css' pages/main.html
-          grep -q 'overflow:hidden' pages/acceso.css
-          grep -q "font-family:'DM Sans'" pages/pulso.css
-          grep -q "font-family:'Manrope'" pages/pulso.css
-          grep -q 'overflow:hidden' pages/pulso.css
-          grep -q 'Aplicaciones' pages/inicio.html
-          grep -q 'Bienvenido' pages/main.html
           grep -q 'MinTIC · Costa R1' pages/main.html
+          grep -q 'acceso-login.js' pages/main.html
+          grep -q 'inicio-session.js' pages/inicio.html
+          grep -q 'Aplicaciones' pages/inicio.html
+          grep -q 'overflow:hidden' pages/acceso.css
           if grep -q 'Plataforma Unificada de Logística' pages/main.html; then
-            echo 'La pantalla de acceso no debe repetir textos institucionales.' >&2
+            echo 'El acceso no debe repetir textos institucionales.' >&2
             exit 1
           fi
 
-      - name: Verificar proyecto Pages pulso-mintic
+      - name: Pruebas unitarias de autenticación
+        run: node --test --disable-warning=ExperimentalWarning test/auth.test.mjs
+
+      - name: Validar proyecto Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
         run: node .github/scripts/create-pulso-pages.mjs
 
-      - name: Publicar PULSO usando Wrangler y GitHub Actions
+      - name: Asociar Pages con D1 existente y preparar migración
+        run: node .github/scripts/prepare-cloudflare-auth.mjs
+
+      - name: Crear tablas de acceso sin tocar inventario
         shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0002_autenticacion.sql
+
+      - name: Preparar administrador inicial si fue autorizado
+        env:
+          PULSO_ADMIN_EMAIL: ${{ secrets.PULSO_ADMIN_EMAIL }}
+          PULSO_ADMIN_PASSWORD: ${{ secrets.PULSO_ADMIN_PASSWORD }}
+        run: node .github/scripts/bootstrap-admin.mjs
+
+      - name: Crear el administrador solo si la base no tiene usuarios
+        if: env.PULSO_FIRST_ADMIN_SQL != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file "$PULSO_FIRST_ADMIN_SQL"
+          rm -f "$PULSO_FIRST_ADMIN_SQL"
+
+      - name: Publicar interfaz y función de acceso en Pages
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/auth-worker.mjs "$RUNNER_TEMP/pulso-public/_worker.js"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
 
-      - name: Verificar página pública y mostrar enlace
+      - name: Verificar en Cloudflare acceso protegido y API real
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${PULSO_PAGES_DOMAIN:-}" ]; then
-            echo 'El script de Pages no devolvió el dominio asignado.' >&2
+          if [ "${PULSO_PAGES_DOMAIN:-}" != 'pulso-mintic.pages.dev' ]; then
+            echo 'Cloudflare Pages no confirmó el dominio esperado.' >&2
             exit 1
           fi
-          URL="https://${PULSO_PAGES_DOMAIN}/main"
+          ROOT='https://pulso-mintic.pages.dev'
           READY=false
-          for intento in $(seq 1 18); do
-            CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-web.html" --write-out "%{http_code}" "$URL" || true)
-            if [ "$CODE" = '200' ] && grep -q 'logo-original-encuadrado.webp' "$RUNNER_TEMP/pulso-web.html" && grep -q 'icono-original.webp' "$RUNNER_TEMP/pulso-web.html" && grep -q 'Bienvenido' "$RUNNER_TEMP/pulso-web.html"; then
+          for attempt in $(seq 1 18); do
+            LOGIN_HTTP=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/pulso-login.html" --write-out '%{http_code}' "$ROOT/main" || true)
+            API_HTTP=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/pulso-auth-health.json" --write-out '%{http_code}' "$ROOT/api/auth/health" || true)
+            PROTECTED_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/inicio" || true)
+            if [ "$LOGIN_HTTP" = '200' ] && grep -q 'acceso-login.js' "$RUNNER_TEMP/pulso-login.html" && [ "$API_HTTP" = '200' ] && grep -q '"ready":true' "$RUNNER_TEMP/pulso-auth-health.json" && [ "$PROTECTED_HTTP" = '302' ]; then
               READY=true
               break
             fi
-            echo "Verificando publicación, intento $intento/18, HTTP $CODE"
+            echo "Verificando el acceso a PULSO ($attempt/18): login=$LOGIN_HTTP api=$API_HTTP inicio=$PROTECTED_HTTP"
             sleep 5
           done
           if [ "$READY" != true ]; then
-            echo 'Cloudflare confirmó la subida, pero /main aún no pasa la verificación pública.' >&2
+            echo 'La autenticación o la protección de Inicio aún no pasaron las pruebas en línea.' >&2
             exit 1
           fi
-          for asset in logo-original.webp logo-original-encuadrado.webp icono-original.webp acceso.css; do
-            HTTP=$(curl --silent --show-error --location --max-time 15 --output "$RUNNER_TEMP/$asset" --write-out "%{http_code}" "https://${PULSO_PAGES_DOMAIN}/$asset" || true)
-            if [ "$HTTP" != "200" ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
-              echo "Recurso de marca no publicado: $asset (HTTP $HTTP)" >&2
+          for asset in logo-original-encuadrado.webp icono-original.webp acceso.css acceso-login.js; do
+            CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
+            if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
+              echo "Falta un recurso de acceso: $asset (HTTP $CODE)" >&2
               exit 1
             fi
           done
-          file "$RUNNER_TEMP/logo-original.webp" "$RUNNER_TEMP/icono-original.webp" | grep -q 'Web/P image'
-          echo '### PULSO Pages: desplegado y verificado' >> "$GITHUB_STEP_SUMMARY"
-          echo "[Abrir PULSO]($URL)" >> "$GITHUB_STEP_SUMMARY"
-          echo 'Entorno inicial, sin usuarios ni operaciones habilitadas.' >> "$GITHUB_STEP_SUMMARY"
-          HOME_URL="https://${PULSO_PAGES_DOMAIN}/inicio"
-          HOME_OK=false
-          for intento in $(seq 1 18); do
-            HOME_CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-inicio.html" --write-out "%{http_code}" "$HOME_URL" || true)
-            if [ "$HOME_CODE" = "200" ] && grep -q 'Aplicaciones' "$RUNNER_TEMP/pulso-inicio.html"; then
-              HOME_OK=true
-              break
-            fi
-            echo "Esperando propagación de Inicio ($intento/18; HTTP $HOME_CODE)"
-            sleep 5
-          done
-          if [ "$HOME_OK" != true ]; then
-            echo "Inicio no disponible o contenido no reconocido (HTTP $HOME_CODE)" >&2
-            echo "Fragmento devuelto por Cloudflare:"
-            head -c 350 "$RUNNER_TEMP/pulso-inicio.html" || true
-            exit 1
+          echo '## PULSO con autenticación real desplegada' >> "$GITHUB_STEP_SUMMARY"
+          echo '[Abrir PULSO](https://pulso-mintic.pages.dev/main)' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Protección de Inicio: verificada. API auth/D1: verificada.' >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "${PULSO_FIRST_ADMIN_SQL:-}" ]; then
+            echo 'Falta configurar PULSO_ADMIN_EMAIL y PULSO_ADMIN_PASSWORD para crear la primera cuenta.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Se ejecutó el alta inicial sin exponer el usuario ni la contraseña en el registro.' >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "[Ver Inicio]($HOME_URL)" >> "$GITHUB_STEP_SUMMARY"
-          echo "PULSO publicado y verificado: $URL y $HOME_URL"
+          echo 'PULSO login y API verificados en https://pulso-mintic.pages.dev/main'
