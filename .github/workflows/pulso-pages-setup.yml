@@ -10,6 +10,7 @@ on:
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
+      - '.github/scripts/verify-live-auth.mjs'
       - '.github/scripts/create-pulso-pages.mjs'
       - '.github/workflows/pulso-pages-setup.yml'
 
@@ -143,3 +144,8 @@ jobs:
             echo 'Se ejecutó el alta inicial sin exponer el usuario ni la contraseña en el registro.' >> "$GITHUB_STEP_SUMMARY"
           fi
           echo 'PULSO login y API verificados en https://pulso-mintic.pages.dev/main'
+      - name: Verificar inicio y cierre reales al configurar primer administrador
+        env:
+          PULSO_ADMIN_EMAIL: ${{ secrets.PULSO_ADMIN_EMAIL }}
+          PULSO_ADMIN_PASSWORD: ${{ secrets.PULSO_ADMIN_PASSWORD }}
+        run: node .github/scripts/verify-live-auth.mjs
