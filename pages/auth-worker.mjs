@@ -157,6 +157,7 @@ function normalizePersonnel(d) {
   if(o.position==='SUPERVISOR'){
     if(o.zone.length<2||o.supervisor_id) return null;
     o.city_base='';
+    o.supervisor_id=null;
   }else{
     if(o.city_base.length<2 || !/^[a-f0-9-]{36}$/i.test(o.supervisor_id)) return null;
     o.zone='';
