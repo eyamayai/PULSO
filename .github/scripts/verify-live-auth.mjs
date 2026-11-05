@@ -25,15 +25,25 @@ for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const data=await result.json();
   if(!data.ok||!Array.isArray(data.items))throw new Error('Respuesta inválida de '+endpoint);
 }
-const invalidBulk=await fetch(origin+'/api/maestras/import',{
-  method:'POST',redirect:'manual',
-  headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
-  body:JSON.stringify({kind:'CATALOGO',mode:'validate',rows:[{sap_code:'',description:''}]})
-});
-if(invalidBulk.status!==200)throw new Error('No se pudo validar la importación masiva, HTTP '+invalidBulk.status);
-const preview=await invalidBulk.json();
-if(!preview.ok||preview.valid!==false||!preview.errors?.length)
-  throw new Error('La validación masiva no rechazó un registro inválido');
+let bulkReady=false;
+let lastBulkStatus=0;
+for(let retry=1;retry<=15;retry++){
+  const invalidBulk=await fetch(origin+'/api/maestras/import',{
+    method:'POST',redirect:'manual',
+    headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
+    body:JSON.stringify({kind:'CATALOGO',mode:'validate',rows:[{sap_code:'',description:''}]})
+  });
+  lastBulkStatus=invalidBulk.status;
+  const preview=await invalidBulk.json().catch(()=>({}));
+  if(invalidBulk.status===200&&preview.ok===true&&preview.valid===false&&preview.errors?.length){
+    bulkReady=true;
+    break;
+  }
+  if(![404,503].includes(invalidBulk.status))
+    throw new Error('La vista previa masiva falló (HTTP '+invalidBulk.status+', código '+(preview.error||'desconocido')+')');
+  await new Promise(resolve=>setTimeout(resolve,3000));
+}
+if(!bulkReady)throw new Error('La ruta de importación masiva no se propagó en Cloudflare (HTTP '+lastBulkStatus+')');
 const logout=await fetch(origin+'/api/auth/logout',{method:'POST',redirect:'manual',headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},body:'{}'});
 if(!logout.ok)throw new Error('Falló el cierre de sesión');
 const after=await fetch(origin+'/inicio',{redirect:'manual',headers:{Cookie:cookie}});
