@@ -199,3 +199,28 @@ test('Carga masiva: protegida por rol, origen, formato y cantidad',async()=>{
   assert.equal(r.status,403);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
 });
+
+
+test('Supervisores de Cesar, Guajira y San Andrés pasan la validación masiva sin cambiar el Excel',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const rows=[
+    {...bulkSupervisor('8000101','Supervisor Cesar'),department:'Cesar',zone:'Cesar'},
+    {...bulkSupervisor('8000102','Supervisor Guajira'),department:'Guajira',zone:'Guajira'},
+    {...bulkSupervisor('8000103','Supervisor San Andres'),department:'San Andrés',zone:'San Andrés'}
+  ];
+  let response=await importReq(x,cookie,'SUPERVISORES',rows,'validate');
+  assert.equal(response.status,200);
+  let data=await response.json();
+  assert.equal(data.valid,true,JSON.stringify(data));
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
+  response=await importReq(x,cookie,'SUPERVISORES',rows,'commit');
+  assert.equal(response.status,201);
+  assert.equal((await response.json()).inserted,3);
+  const departments=x.database.prepare('SELECT department FROM master_personnel ORDER BY document_number').all().map(r=>r.department);
+  assert.deepEqual(departments,['CESAR','LA GUAJIRA','SAN ANDRES']);
+  response=await importReq(x,cookie,'SUPERVISORES',[{...bulkSupervisor('8000104','Supervisor fuera de zona'),department:'Atlántico'}],'validate');
+  data=await response.json();
+  assert.equal(data.valid,false);
+  assert.equal(data.errors[0].field,'Departamento');
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,3);
+});
