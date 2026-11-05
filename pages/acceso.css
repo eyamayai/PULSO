@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+:root{--ink:#102b35;--teal:#087b60;--orange:#ff9d24;font:14px 'DM Sans',system-ui,sans-serif;color:#fff}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;height:100dvh;overflow:hidden;overscroll-behavior:none}
+body{background:#063c34;min-width:0;min-height:0}
+.login-page{position:relative;isolation:isolate;width:100%;height:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(390px,0.98fr);align-items:center;gap:clamp(12px,3vw,56px);padding:clamp(18px,4vw,60px) clamp(24px,5vw,82px);overflow:hidden;background:radial-gradient(ellipse 48% 65% at 16% 86%,#13856b95 0,transparent 70%),radial-gradient(ellipse 65% 75% at 94% 0%,#079d7f8c 0,transparent 65%),linear-gradient(140deg,#052e2c,#074940 65%,#052a29)}
+.login-page:before{content:"";position:absolute;z-index:-1;left:-25%;top:-60%;width:100%;height:82%;transform:rotate(-20deg);border-radius:45%;background:linear-gradient(145deg,#18b9964d,#11887421);border-bottom:1px solid #5ee1bd51}
+.login-page:after{content:"";position:absolute;z-index:-1;right:-42%;bottom:-115%;width:118%;height:125%;transform:rotate(-27deg);border-radius:50%;background:linear-gradient(155deg,#0c75605e,#07877132);border-top:1px solid #ffb33b96;box-shadow:0 -20px 70px #ffbd3530}
+.wave{position:absolute;z-index:-1;pointer-events:none;border-radius:50%}
+.wave-top{width:78vw;height:60vw;top:-47vw;right:-27vw;border:1px solid #20be9e63;transform:rotate(-32deg);background:linear-gradient(100deg,#1db48e28,transparent)}
+.wave-bottom{width:95vw;height:65vw;bottom:-54vw;left:-31vw;border:1px solid #35ba9c39;transform:rotate(10deg)}
+.orbit-zone{position:relative;width:min(35vw,480px);height:min(35vw,480px);min-width:260px;min-height:260px;justify-self:center;display:grid;place-items:center}
+.orbit{position:absolute;border:1px solid #75d6b842;border-radius:50%}
+.orbit-outer{inset:3%}.orbit-mid{inset:16%;border-color:#8afcd75b}.orbit-inner{inset:30%;border-color:#a4ffdb44}
+.orbit-glow{position:absolute;inset:12%;border-radius:50%;background:radial-gradient(circle,#2ec2a350,transparent 68%);filter:blur(24px)}
+.brand-icon{position:relative;z-index:1;width:69%;height:69%;object-fit:contain;filter:drop-shadow(0 17px 27px #001f1d83)}
+.login-card{min-width:0;max-width:570px;width:100%;justify-self:center;border-radius:30px;background:linear-gradient(145deg,#ffffff37,#d5f6e31c 65%,#ffffff28);border:1px solid #d1fff56f;box-shadow:0 24px 80px #00252268,inset 0 1px #ffffff62;backdrop-filter:blur(21px);-webkit-backdrop-filter:blur(21px);position:relative;overflow:hidden}
+.login-card:before{content:"";position:absolute;top:0;right:0;width:62%;height:1px;background:linear-gradient(90deg,transparent,#ffae39a8)}
+.login-card-inner{width:100%;padding:clamp(20px,3.7vw,49px) clamp(24px,4.1vw,56px) clamp(19px,3.2vw,40px);display:flex;flex-direction:column;align-items:stretch;text-align:center}
+.logo-panel{align-self:center;width:min(86%,304px);height:91px;display:grid;place-items:center;padding:5px 11px;border-radius:17px;background:linear-gradient(135deg,#fffffff0,#f0fcf6df);border:1px solid #ffffffa8;box-shadow:0 8px 27px #002c2a25;overflow:hidden}
+.brand-logo{display:block;max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain}
+.portal-label{margin-top:clamp(14px,2.8vh,29px);display:flex;align-items:center;justify-content:center;gap:12px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#e4fff4;font-size:clamp(9px,.9vw,12px);white-space:nowrap}
+.portal-label:before,.portal-label:after{content:"";width:42px;height:1px;background:#c6ead488}
+h1{margin:clamp(16px,3vh,26px) 0 0;font:800 clamp(30px,3.4vw,45px)/1.15 'Manrope',sans-serif;letter-spacing:-1.65px;color:#fff;text-shadow:0 2px 12px #002e2968}
+.subtitle{font-size:clamp(12px,1.3vw,16px);line-height:1.45;color:#c8e3d9;margin:7px 0 clamp(19px,3.3vh,35px)}
+.login-form{display:flex;flex-direction:column;gap:clamp(12px,2vh,17px)}
+.field{height:clamp(46px,7.3vh,62px);display:flex;align-items:center;gap:13px;padding:0 18px;border-radius:13px;border:1px solid #d9fff28a;background:linear-gradient(120deg,#c0f6e42a,#eefff238);box-shadow:inset 0 1px 2px #ffffff30}
+.field svg{width:19px;height:19px;stroke:#effff8;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.field input{font:500 14px 'DM Sans',sans-serif;color:#fff;width:100%;min-width:0;border:0;outline:0;background:transparent;opacity:1;-webkit-text-fill-color:#e5f6ef;cursor:not-allowed}
+.field input::placeholder{color:#e5f6ef;opacity:1}
+.sign-in{margin-top:clamp(1px,1vh,9px);border:1px solid #26d1a7b0;border-radius:13px;color:white;font:800 15px 'Manrope',sans-serif;letter-spacing:-.2px;background:linear-gradient(110deg,#0cb78e,#06866f 72%,#07785e);box-shadow:0 9px 25px #003c3380;height:clamp(48px,7.8vh,64px);width:100%;cursor:not-allowed;opacity:.88}
+.project-label{font-weight:700;font-size:11px;letter-spacing:2.2px;color:#d4ebe1;margin:clamp(17px,3.7vh,36px) 0 0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:900px){.login-page{grid-template-columns:minmax(0,.6fr) minmax(350px,1fr);padding:22px;gap:12px}.orbit-zone{width:min(35vw,340px);height:min(35vw,340px);min-width:180px;min-height:180px}.login-card{max-width:520px}}
+@media(max-width:660px){.login-page{display:grid;grid-template-columns:1fr;padding:16px;place-items:center}.orbit-zone{display:none}.login-card{width:min(100%,480px)}.login-card-inner{padding:clamp(16px,4vh,30px) clamp(20px,5vw,34px)}.logo-panel{height:79px;max-width:270px}.portal-label{margin-top:18px}.subtitle{margin-bottom:20px}}
+@media(max-height:660px){.login-card-inner{padding-top:17px;padding-bottom:19px}.logo-panel{height:65px}.portal-label{margin-top:11px}.subtitle{margin-bottom:13px}h1{margin-top:11px}.project-label{margin-top:13px}.field{height:42px}.sign-in{height:44px}.login-form{gap:9px}}
+@media(max-height:510px){.logo-panel{height:45px}.portal-label{margin-top:5px}h1{font-size:27px;margin-top:7px}.subtitle{margin:2px 0 8px}.project-label{margin-top:8px}.field{height:34px}.sign-in{height:36px}.login-form{gap:5px}}
