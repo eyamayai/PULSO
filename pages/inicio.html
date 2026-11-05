@@ -2,10 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f4f8fa"><meta name="robots" content="noindex,nofollow">
-<title>PULSO | Inicio</title><link rel="icon" href="/pulso-icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#f5faf8"><meta name="robots" content="noindex,nofollow">
+<title>PULSO | Inicio</title>
+<link rel="icon" type="image/webp" href="/icono-original.webp">
 <link rel="stylesheet" href="/pulso.css">
 <script src="/inicio-session.js" defer></script>
+<script src="/inicio-ui.js" defer></script>
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
@@ -24,39 +26,62 @@
 <symbol id="ico-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 17v-5m5 5V7m5 10V4"/></symbol>
 <symbol id="ico-alert" viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 4h.01"/></symbol>
 <symbol id="ico-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
-</svg>
-<main class="home-page">
-<div class="home-shell">
-  <header class="home-top">
-    <div class="wordmark"><img src="/pulso-icon.svg" alt="Icono PULSO"><div><strong>PULSO</strong><small>MIN TIC · COSTA R1</small></div></div>
-    <div class="right"><span class="region-label">MinTIC · Costa R1</span><span id="session-user" class="session-name"></span><button id="logout-btn" class="logout-btn" type="button" hidden>Salir</button></div>
-  </header>
-  <section class="welcome"><div><h1>Inicio</h1><p>Plataforma Unificada de Logística, Seguimiento y Operaciones</p></div></section>
-  <section class="overview" aria-label="Resumen">
-    <article class="overview-card"><div><div class="count">—</div><small>Inventario</small></div><span class="shape"><svg aria-hidden="true"><use href="#ico-box"></use></svg></span></article>
-<article class="overview-card"><div><div class="count">—</div><small>Con técnicos</small></div><span class="shape"><svg aria-hidden="true"><use href="#ico-warehouse"></use></svg></span></article>
-<article class="overview-card"><div><div class="count">—</div><small>Movimientos</small></div><span class="shape"><svg aria-hidden="true"><use href="#ico-arrows"></use></svg></span></article>
-<article class="overview-card"><div><div class="count">—</div><small>Alertas</small></div><span class="shape"><svg aria-hidden="true"><use href="#ico-bell"></use></svg></span></article>
+<symbol id="ico-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.3 3.4-7 8-7s8 2.7 8 7"/></symbol><symbol id="ico-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10H3V11Z"/><path d="M9 21v-7h6v7"/></symbol><symbol id="ico-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol><symbol id="ico-pulse" viewBox="0 0 24 24"><path d="M2 13h5l3-8 4 14 3-6h5"/></symbol><symbol id="ico-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol></svg>
+<div class="app-layout">
+<header class="topbar">
+  <a href="/inicio" class="brand-link" aria-label="PULSO, Inicio"><img src="/logo-original-encuadrado.webp" alt="PULSO" width="142" height="57"></a>
+  <nav class="topnav" aria-label="Navegación principal">
+    <a href="/inicio" class="nav-home active" aria-current="page"><svg class="i" aria-hidden="true"><use href="#ico-home"></use></svg><span>Inicio</span></a>
+    <details class="nav-drop"><summary>Operación<svg class="i" aria-hidden="true"><use href="#ico-chevron"></use></svg></summary><div class="nav-menu"><button type="button" data-target="mod-ingresos">Ingresos</button><button type="button" data-target="mod-despachos">Despachos</button><button type="button" data-target="mod-consumos">Consumos</button><button type="button" data-target="mod-devoluciones">Devoluciones</button><button type="button" data-target="mod-desmontes">Desmontes</button><button type="button" data-target="mod-prealertas">Prealertas</button><button type="button" data-target="mod-traslados">Traslados</button><button type="button" data-target="mod-transferencias">Transferencias</button></div></details>
+    <details class="nav-drop"><summary>Inventario<svg class="i" aria-hidden="true"><use href="#ico-chevron"></use></svg></summary><div class="nav-menu"><button type="button" data-target="mod-inventario">Inventario</button><button type="button" data-target="mod-inventarios-ciclicos">Inventarios cíclicos</button><button type="button" data-target="mod-validar-seriales">Validar seriales</button></div></details>
+    <details class="nav-drop"><summary>Gestión<svg class="i" aria-hidden="true"><use href="#ico-chevron"></use></svg></summary><div class="nav-menu"><button type="button" data-target="mod-informes">Informes</button><button type="button" data-target="mod-alertas">Alertas</button></div></details>
+    <details class="nav-drop"><summary>Administración<svg class="i" aria-hidden="true"><use href="#ico-chevron"></use></svg></summary><div class="nav-menu"><button type="button" data-target="mod-maestras">Maestras</button></div></details>
+  </nav>
+  <div class="account">
+    <span class="region-label">MinTIC · Costa R1</span>
+    <button id="notifications-button" class="bell-button" type="button" title="Alertas" aria-label="Ver alertas"><svg class="i" aria-hidden="true"><use href="#ico-bell"></use></svg></button>
+    <div class="account-info"><span class="avatar"><svg class="i" aria-hidden="true"><use href="#ico-user"></use></svg></span><span id="session-user" class="session-name"></span><button id="logout-btn" class="logout-btn" type="button" hidden>Salir</button></div>
+  </div>
+</header>
+<main class="workspace" id="main">
+<div class="workspace-content">
+  <section class="hero">
+    <div class="hero-copy"><span class="eyebrow">PANEL GENERAL</span><h1>Inicio</h1><p>Control logístico y operativo</p></div>
+    <div class="hero-art" aria-hidden="true"><div class="arc a1"></div><div class="arc a2"></div></div>
   </section>
-  <section class="module-area" aria-label="Aplicaciones">
-    <div class="section-heading"><h2>Aplicaciones</h2><small>OPERACIÓN LOGÍSTICA</small></div>
-    <div class="module-grid"><article class="module-tile" aria-label="Maestras"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-warehouse"></use></svg></span><b>Maestras</b></article>
-<article class="module-tile" aria-label="Ingresos"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-box"></use></svg></span><b>Ingresos</b></article>
-<article class="module-tile" aria-label="Despachos"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-truck"></use></svg></span><b>Despachos</b></article>
-<article class="module-tile" aria-label="Consumos"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-check"></use></svg></span><b>Consumos</b></article>
-<article class="module-tile" aria-label="Devoluciones"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-return"></use></svg></span><b>Devoluciones</b></article>
-<article class="module-tile" aria-label="Desmontes"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-stack"></use></svg></span><b>Desmontes</b></article>
-<article class="module-tile" aria-label="Prealertas"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-bell"></use></svg></span><b>Prealertas</b></article>
-<article class="module-tile" aria-label="Traslados"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-move"></use></svg></span><b>Traslados</b></article>
-<article class="module-tile" aria-label="Transferencias"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-arrows"></use></svg></span><b>Transferencias</b></article>
-<article class="module-tile" aria-label="Inventario"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-inventory"></use></svg></span><b>Inventario</b></article>
-<article class="module-tile" aria-label="Inventarios cíclicos"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-cycle"></use></svg></span><b>Inventarios cíclicos</b></article>
-<article class="module-tile" aria-label="Validar seriales"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-scan"></use></svg></span><b>Validar seriales</b></article>
-<article class="module-tile" aria-label="Informes"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-chart"></use></svg></span><b>Informes</b></article>
-<article class="module-tile" aria-label="Alertas"><span class="tile-icon"><svg aria-hidden="true"><use href="#ico-alert"></use></svg></span><b>Alertas</b></article></div>
-  </section>
-  <footer class="home-footer"><span>DOMINION · CLARO</span><span>PULSO · MinTIC Costa R1</span></footer>
+  <div class="content-columns">
+    <div class="primary-content">
+      <section class="kpi-grid" aria-label="Indicadores generales"><article class="kpi kpi-1"><span class="kpi-icon c0"><svg class="i" aria-hidden="true"><use href="#ico-box"></use></svg></span><div class="kpi-info"><span>Inventario</span><strong aria-label="Indicador aún sin datos">—</strong></div></article>
+<article class="kpi kpi-2"><span class="kpi-icon c1"><svg class="i" aria-hidden="true"><use href="#ico-warehouse"></use></svg></span><div class="kpi-info"><span>Con técnicos</span><strong aria-label="Indicador aún sin datos">—</strong></div></article>
+<article class="kpi kpi-3"><span class="kpi-icon c2"><svg class="i" aria-hidden="true"><use href="#ico-arrows"></use></svg></span><div class="kpi-info"><span>Movimientos</span><strong aria-label="Indicador aún sin datos">—</strong></div></article>
+<article class="kpi kpi-4"><span class="kpi-icon c3"><svg class="i" aria-hidden="true"><use href="#ico-bell"></use></svg></span><div class="kpi-info"><span>Alertas</span><strong aria-label="Indicador aún sin datos">—</strong></div></article></section>
+      <section class="apps-section" id="aplicaciones" aria-labelledby="apps-heading">
+        <div class="section-heading"><h2 id="apps-heading">Aplicaciones</h2><span>OPERACIÓN LOGÍSTICA</span></div>
+        <div class="module-grid"><article class="module-tile" id="mod-maestras" tabindex="-1" data-category="administracion" aria-label="Maestras"><span class="tile-icon c0"><svg class="i" aria-hidden="true"><use href="#ico-warehouse"></use></svg></span><strong>Maestras</strong></article>
+<article class="module-tile" id="mod-ingresos" tabindex="-1" data-category="operacion" aria-label="Ingresos"><span class="tile-icon c1"><svg class="i" aria-hidden="true"><use href="#ico-box"></use></svg></span><strong>Ingresos</strong></article>
+<article class="module-tile" id="mod-despachos" tabindex="-1" data-category="operacion" aria-label="Despachos"><span class="tile-icon c2"><svg class="i" aria-hidden="true"><use href="#ico-truck"></use></svg></span><strong>Despachos</strong></article>
+<article class="module-tile" id="mod-consumos" tabindex="-1" data-category="operacion" aria-label="Consumos"><span class="tile-icon c3"><svg class="i" aria-hidden="true"><use href="#ico-check"></use></svg></span><strong>Consumos</strong></article>
+<article class="module-tile" id="mod-devoluciones" tabindex="-1" data-category="operacion" aria-label="Devoluciones"><span class="tile-icon c4"><svg class="i" aria-hidden="true"><use href="#ico-return"></use></svg></span><strong>Devoluciones</strong></article>
+<article class="module-tile" id="mod-desmontes" tabindex="-1" data-category="operacion" aria-label="Desmontes"><span class="tile-icon c0"><svg class="i" aria-hidden="true"><use href="#ico-stack"></use></svg></span><strong>Desmontes</strong></article>
+<article class="module-tile" id="mod-prealertas" tabindex="-1" data-category="operacion" aria-label="Prealertas"><span class="tile-icon c1"><svg class="i" aria-hidden="true"><use href="#ico-bell"></use></svg></span><strong>Prealertas</strong></article>
+<article class="module-tile" id="mod-traslados" tabindex="-1" data-category="operacion" aria-label="Traslados"><span class="tile-icon c2"><svg class="i" aria-hidden="true"><use href="#ico-move"></use></svg></span><strong>Traslados</strong></article>
+<article class="module-tile" id="mod-transferencias" tabindex="-1" data-category="operacion" aria-label="Transferencias"><span class="tile-icon c3"><svg class="i" aria-hidden="true"><use href="#ico-arrows"></use></svg></span><strong>Transferencias</strong></article>
+<article class="module-tile" id="mod-inventario" tabindex="-1" data-category="inventario" aria-label="Inventario"><span class="tile-icon c4"><svg class="i" aria-hidden="true"><use href="#ico-inventory"></use></svg></span><strong>Inventario</strong></article>
+<article class="module-tile" id="mod-inventarios-ciclicos" tabindex="-1" data-category="inventario" aria-label="Inventarios cíclicos"><span class="tile-icon c0"><svg class="i" aria-hidden="true"><use href="#ico-cycle"></use></svg></span><strong>Inventarios cíclicos</strong></article>
+<article class="module-tile" id="mod-validar-seriales" tabindex="-1" data-category="inventario" aria-label="Validar seriales"><span class="tile-icon c1"><svg class="i" aria-hidden="true"><use href="#ico-scan"></use></svg></span><strong>Validar seriales</strong></article>
+<article class="module-tile" id="mod-informes" tabindex="-1" data-category="gestion" aria-label="Informes"><span class="tile-icon c2"><svg class="i" aria-hidden="true"><use href="#ico-chart"></use></svg></span><strong>Informes</strong></article>
+<article class="module-tile" id="mod-alertas" tabindex="-1" data-category="gestion" aria-label="Alertas"><span class="tile-icon c3"><svg class="i" aria-hidden="true"><use href="#ico-alert"></use></svg></span><strong>Alertas</strong></article></div>
+      </section>
+    </div>
+    <aside class="ops-panel" aria-label="Panel de operación">
+      <div class="ops-heading"><span class="ops-symbol"><svg class="i" aria-hidden="true"><use href="#ico-pulse"></use></svg></span><div><h2>Operación</h2><p>Panel de seguimiento</p></div></div>
+      <section class="ops-card" id="alertas-recientes"><div class="ops-title"><span class="title-icon amber"><svg class="i" aria-hidden="true"><use href="#ico-bell"></use></svg></span><h3>Alertas recientes</h3></div><div class="ops-empty"><span class="empty-icon"><svg class="i" aria-hidden="true"><use href="#ico-bell"></use></svg></span><span>Sin información disponible</span></div></section>
+      <section class="ops-card"><div class="ops-title"><span class="title-icon green"><svg class="i" aria-hidden="true"><use href="#ico-pulse"></use></svg></span><h3>Acciones rápidas</h3></div><div class="quick-actions"><button type="button" disabled><svg class="i" aria-hidden="true"><use href="#ico-box"></use></svg>Registrar ingreso <span>›</span></button><button type="button" disabled><svg class="i" aria-hidden="true"><use href="#ico-arrows"></use></svg>Crear movimiento <span>›</span></button><button type="button" disabled><svg class="i" aria-hidden="true"><use href="#ico-scan"></use></svg>Validar serial <span>›</span></button></div></section>
+      <section class="ops-card status-card"><div class="ops-title"><span class="title-icon green"><svg class="i" aria-hidden="true"><use href="#ico-lock"></use></svg></span><h3>Acceso</h3></div><div class="status-line"><span class="status-dot"></span>Sesión autenticada</div></section>
+    </aside>
+  </div>
 </div>
 </main>
+</div>
 </body>
 </html>

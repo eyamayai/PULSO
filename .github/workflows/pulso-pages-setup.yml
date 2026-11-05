@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -56,6 +56,11 @@ jobs:
           grep -q 'acceso-login.js' pages/main.html
           grep -q 'inicio-session.js' pages/inicio.html
           grep -q 'Aplicaciones' pages/inicio.html
+          grep -q 'logo-original-encuadrado.webp' pages/inicio.html
+          grep -q 'icono-original.webp' pages/inicio.html
+          grep -q 'inicio-ui.js' pages/inicio.html
+          grep -q 'Sin información disponible' pages/inicio.html
+          node --check pages/inicio-ui.js
           grep -q 'overflow:hidden' pages/acceso.css
           if grep -q 'Plataforma Unificada de Logística' pages/main.html; then
             echo 'El acceso no debe repetir textos institucionales.' >&2
@@ -101,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/_headers "$RUNNER_TEMP/pulso-public/"
           cp pages/auth-worker.mjs "$RUNNER_TEMP/pulso-public/_worker.js"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
 
@@ -134,6 +139,13 @@ jobs:
             CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
             if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
               echo "Falta un recurso de acceso: $asset (HTTP $CODE)" >&2
+              exit 1
+            fi
+          done
+          for asset in inicio-ui.js pulso.css; do
+            CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
+            if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
+              echo "Falta recurso de Inicio: $asset (HTTP $CODE)" >&2
               exit 1
             fi
           done
