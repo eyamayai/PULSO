@@ -111,15 +111,163 @@ function securePage(response) {
   next.headers.set('cache-control', 'no-store, private');
   return next;
 }
+
+/* Maestras: only ADMIN can read or edit. No registrations or operational imports. */
+const DEPARTMENTS = new Set(['CESAR','LA GUAJIRA','SAN ANDRES']);
+const PROFILE_TYPES = new Set(['CON PERFIL DE SERIE','SIN PERFIL DE SERIE']);
+const CODE_TYPES = new Set(['EQUIPO','MATERIAL']);
+const POSITIONS = new Set(['SUPERVISOR','TECNICO']);
+const masterBad = (code, status = 400) => json({ok:false,error:code},status);
+const trimmed = (v,max=120) => typeof v === 'string' ? v.trim().replace(/\\s+/g,' ').slice(0,max+1) : '';
+const emailOk = v => !v || (/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(v) && v.length<=254);
+const fieldsOf = (o, allowed) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).every(k=>allowed.includes(k));
+async function masterBody(request) {
+  if (!sameOrigin(request)) return {error: 'ORIGEN_NO_AUTORIZADO',status:403};
+  if (!/application\\/json/i.test(request.headers.get('content-type')||'')) return {error:'TIPO_NO_VALIDO',status:415};
+  const text = await request.text();
+  if (text.length>6000) return {error:'DATOS_INVALIDOS',status:400};
+  try {
+    const data=JSON.parse(text);
+    if (!data||typeof data!=='object'||Array.isArray(data)) return {error:'DATOS_INVALIDOS',status:400};
+    return {data};
+  } catch {return {error:'DATOS_INVALIDOS',status:400};}
+}
+async function writeAudit(db, actor, entity, id, action, fields) {
+  return db.prepare('INSERT INTO master_audit (id,entity,record_id,action,actor_id,changed_fields) VALUES (?,?,?,?,?,?)')
+    .bind(crypto.randomUUID(),entity,id,action,actor,JSON.stringify(fields));
+}
+function normalizePersonnel(d) {
+  const o={
+    document_number:trimmed(d.document_number,25).toUpperCase(),
+    full_name:trimmed(d.full_name,120),
+    position:trimmed(d.position,15).toUpperCase(),
+    department:trimmed(d.department,25).toUpperCase(),
+    zone:trimmed(d.zone,80),
+    city_base:trimmed(d.city_base,80),
+    supervisor_id:trimmed(d.supervisor_id,80),
+    email:trimmed(d.email,254).toLowerCase(),
+    phone:trimmed(d.phone,30),
+    is_active:d.is_active===false || d.is_active===0 ? 0 : 1
+  };
+  if (!/^[A-Z0-9-]{4,25}$/.test(o.document_number) ||
+      o.full_name.length<3||o.full_name.length>120||
+      !POSITIONS.has(o.position)||!DEPARTMENTS.has(o.department)||
+      !emailOk(o.email)|| (o.phone && !/^[0-9+(). -]{5,30}$/.test(o.phone))||
+      o.zone.length>80||o.city_base.length>80) return null;
+  if(o.position==='SUPERVISOR'){
+    if(o.zone.length<2||o.supervisor_id) return null;
+    o.city_base='';
+  }else{
+    if(o.city_base.length<2 || !/^[a-f0-9-]{36}$/i.test(o.supervisor_id)) return null;
+    o.zone='';
+  }
+  return o;
+}
+function normalizeCatalog(d){
+  const o={
+    sap_code:trimmed(d.sap_code,50).toUpperCase(),
+    description:trimmed(d.description,220),
+    item_type:trimmed(d.item_type,25).toUpperCase(),
+    serial_profile:trimmed(d.serial_profile,30).toUpperCase(),
+    unit:trimmed(d.unit,12).toUpperCase(),
+    family:trimmed(d.family,90),
+    is_active:d.is_active===false || d.is_active===0 ? 0 : 1
+  };
+  if(!/^[A-Z0-9][A-Z0-9._/-]{1,49}$/.test(o.sap_code)||
+    o.description.length<3||o.description.length>220||
+    !CODE_TYPES.has(o.item_type)||!PROFILE_TYPES.has(o.serial_profile)||
+    !/^[A-Z0-9]{1,12}$/.test(o.unit)||
+    o.family.length>90) return null;
+  return o;
+}
+async function masterHandler(request,env,user,path){
+  if(!user) return masterBad('NO_AUTENTICADO',401);
+  if(user.role!=='ADMIN') return masterBad('SIN_PERMISOS',403);
+  const people=path==='/api/maestras/personal';
+  const catalog=path==='/api/maestras/catalogo';
+  if(!people&&!catalog)return masterBad('RUTA_NO_DISPONIBLE',404);
+  if(request.method==='GET'){
+    const result=people
+      ? await env.DB.prepare(`SELECT p.id,p.document_number,p.full_name,p.position,p.department,p.zone,p.city_base,
+          p.supervisor_id,p.email,p.phone,p.is_active,p.created_at,p.updated_at,
+          s.full_name AS supervisor_name FROM master_personnel p LEFT JOIN master_personnel s ON s.id=p.supervisor_id
+          ORDER BY p.position DESC,p.full_name COLLATE NOCASE LIMIT 500`).all()
+      : await env.DB.prepare(`SELECT id,sap_code,description,item_type,serial_profile,unit,family,is_active,created_at,updated_at
+          FROM master_sap_catalog ORDER BY description COLLATE NOCASE LIMIT 500`).all();
+    return json({ok:true,items:result.results||[]});
+  }
+  if(!['POST','PATCH'].includes(request.method))return masterBad('METODO_NO_PERMITIDO',405);
+  const payload=await masterBody(request);
+  if(payload.error)return masterBad(payload.error,payload.status);
+  const data=payload.data;
+  const allowed=people
+    ? ['id','document_number','full_name','position','department','zone','city_base','supervisor_id','email','phone','is_active']
+    : ['id','sap_code','description','item_type','serial_profile','unit','family','is_active'];
+  if(!fieldsOf(data,allowed)||!Object.keys(data).length)return masterBad('CAMPOS_NO_VALIDOS');
+  const editing=request.method==='PATCH';
+  let old=null;
+  if(editing){
+    if(typeof data.id!=='string'||!/^[a-f0-9-]{36}$/i.test(data.id))return masterBad('ID_INVALIDO');
+    old=await env.DB.prepare(people?'SELECT * FROM master_personnel WHERE id=?':'SELECT * FROM master_sap_catalog WHERE id=?')
+      .bind(data.id).first();
+    if(!old)return masterBad('NO_ENCONTRADO',404);
+    const frozen=people?['document_number','position']:['sap_code'];
+    if(frozen.some(k=>Object.hasOwn(data,k)&&data[k]!==old[k]))return masterBad('CLAVE_INMUTABLE',409);
+  }else if(Object.hasOwn(data,'id'))return masterBad('ID_NO_PERMITIDO');
+  const merged={...(old||{}),...data};
+  const v=people?normalizePersonnel(merged):normalizeCatalog(merged);
+  if(!v)return masterBad('DATOS_INVALIDOS');
+  if(people&&v.position==='TECNICO'){
+    const boss=await env.DB.prepare(`SELECT id FROM master_personnel WHERE id=? AND position='SUPERVISOR' AND is_active=1`)
+      .bind(v.supervisor_id).first();
+    if(!boss)return masterBad('SUPERVISOR_NO_VALIDO',422);
+  }
+  if(people&&editing&&v.position==='SUPERVISOR'&&v.is_active===0&&old.is_active===1){
+    const row=await env.DB.prepare(`SELECT id FROM master_personnel WHERE supervisor_id=? AND is_active=1 LIMIT 1`).bind(old.id).first();
+    if(row)return masterBad('SUPERVISOR_CON_TECNICOS_ACTIVOS',409);
+  }
+  const uniqueKey=people?'document_number':'sap_code';
+  const table=people?'master_personnel':'master_sap_catalog';
+  const dup=await env.DB.prepare(`SELECT id FROM ${table} WHERE ${uniqueKey}=? LIMIT 1`).bind(v[uniqueKey]).first();
+  if(dup&&(!old||dup.id!==old.id))return masterBad(people?'IDENTIFICACION_DUPLICADA':'SAP_DUPLICADO',409);
+  const keys=Object.keys(v);
+  const id=old?.id||crypto.randomUUID();
+  const changed=editing?keys.filter(k=>String(v[k])!==String(old[k])):keys;
+  if(editing&&!changed.length)return json({ok:true,id,unchanged:true});
+  const action=editing && changed.length===1 && changed[0]==='is_active' ? (v.is_active?'ACTIVAR':'DESACTIVAR') : editing ? 'EDITAR':'CREAR';
+  const actor=user.id;
+  const stmt=editing
+    ? env.DB.prepare(`UPDATE ${table} SET ${keys.map(k=>k+'=?').join(',')},updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+        .bind(...keys.map(k=>v[k]),actor,id)
+    : env.DB.prepare(`INSERT INTO ${table} (id,${keys.join(',')},created_by,updated_by) VALUES (${Array(keys.length+3).fill('?').join(',')})`)
+        .bind(id,...keys.map(k=>v[k]),actor,actor);
+  try{
+    await env.DB.batch([stmt,await writeAudit(env.DB,actor,people?'PERSONAL':'CATALOGO_SAP',id,action,changed)]);
+  }catch(err){
+    if(String(err).includes('UNIQUE'))return masterBad(people?'IDENTIFICACION_DUPLICADA':'SAP_DUPLICADO',409);
+    if(String(err).includes('FOREIGN KEY'))return masterBad('REFERENCIA_NO_VALIDA',422);
+    throw err;
+  }
+  return json({ok:true,id,action},editing?200:201);
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     try {
-      if (pathname.startsWith('/api/auth/') || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
+      if (pathname.startsWith('/api/auth/') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
         if (!env.DB) return json({ok: false, error: 'SERVICIO_NO_CONFIGURADO'}, 503);
         if (pathname === '/api/auth/health' && request.method === 'GET') {
           await env.DB.prepare('SELECT id FROM app_users LIMIT 1').first();
           return json({ok: true, service: 'pulso-auth', ready: true});
+        }
+        if (pathname.startsWith('/api/maestras/')) return await masterHandler(request,env,await currentUser(request,env),pathname);
+        if (pathname === '/maestras' || pathname === '/maestras.html') {
+          if(request.method!=='GET'&&request.method!=='HEAD')return masterBad('METODO_NO_PERMITIDO',405);
+          const user=await currentUser(request,env);
+          if(!user)return go('/main');
+          if(user.role!=='ADMIN')return go('/inicio');
+          return securePage(await env.ASSETS.fetch(request));
         }
         if (pathname === '/api/auth/login' && request.method === 'POST') return await login(request, env);
         if (pathname === '/api/auth/logout' && request.method === 'POST') return await logout(request, env);

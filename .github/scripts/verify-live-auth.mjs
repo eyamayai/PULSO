@@ -14,8 +14,19 @@ const me=await fetch(origin+'/api/auth/me',{redirect:'manual',headers:{Cookie:co
 if(!me.ok)throw new Error('La sesión no pudo recuperarse');
 const home=await fetch(origin+'/inicio',{redirect:'manual',headers:{Cookie:cookie}});
 if(home.status!==200)throw new Error('La sesión no puede acceder a Inicio; HTTP '+home.status);
+const masters=await fetch(origin+'/maestras',{redirect:'manual',headers:{Cookie:cookie}});
+if(masters.status!==200)throw new Error('El administrador no puede abrir Maestras; HTTP '+masters.status);
+const mastersHtml=await masters.text();
+if(!mastersHtml.includes('id="tab-personal"')||!mastersHtml.includes('id="tab-catalogo"'))
+  throw new Error('La nueva pantalla de Maestras no es la versión publicada');
+for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
+  const result=await fetch(origin+endpoint,{redirect:'manual',headers:{Cookie:cookie}});
+  if(result.status!==200)throw new Error('El administrador no puede consultar '+endpoint+'; HTTP '+result.status);
+  const data=await result.json();
+  if(!data.ok||!Array.isArray(data.items))throw new Error('Respuesta inválida de '+endpoint);
+}
 const logout=await fetch(origin+'/api/auth/logout',{method:'POST',redirect:'manual',headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},body:'{}'});
 if(!logout.ok)throw new Error('Falló el cierre de sesión');
 const after=await fetch(origin+'/inicio',{redirect:'manual',headers:{Cookie:cookie}});
 if(after.status!==302||after.headers.get('location')!=='/main')throw new Error('La sesión revocada aún puede acceder a Inicio');
-console.log('Acceso real, sesión, inicio y cierre verificados sin registrar credenciales.');
+console.log('Acceso, Maestras, autorización ADMIN, D1 y cierre de sesión verificados sin registrar credenciales.');

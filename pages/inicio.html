@@ -36,13 +36,11 @@
 <symbol id="ico-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9 9a3 3 0 0 1 6 1c0 2-3 2.5-3 4"/><path d="M12 18h.01"/></symbol></svg>
 <div class="app">
  <aside class="sidebar" aria-label="Menú principal">
-  <a class="brand" href="/inicio" aria-label="PULSO, Inicio">
-   <img src="/icono-original.webp" alt="" width="52" height="52"><div><strong>PULSO</strong><small>MIN TIC · COSTA R1</small></div>
-  </a>
+  <a class="brand brand-original" href="/inicio" aria-label="PULSO, Inicio"><picture><source media="(max-width:700px)" srcset="/icono-original.webp" type="image/webp"><img src="/logo-original-encuadrado.webp" alt="PULSO" width="200" height="64"></picture></a>
   <nav class="side-nav" aria-label="Navegación de PULSO">
    <a class="side-link current" href="/inicio" aria-current="page"><svg class="ic" aria-hidden="true"><use href="#ico-home"></use></svg><span>Inicio</span></a>
    <div class="nav-caption">OPERACIÓN LOGÍSTICA</div>
-   <div class="sidebar-modules"><button type="button" class="side-link" data-target="mod-maestras" aria-label="Maestras"><svg class="ic" aria-hidden="true"><use href="#ico-warehouse"></use></svg><span>Maestras</span></button>
+   <div class="sidebar-modules"><a class="side-link" href="/maestras" aria-label="Maestras"><svg class="ic" aria-hidden="true"><use href="#ico-warehouse"></use></svg><span>Maestras</span></a>
 <button type="button" class="side-link" data-target="mod-ingresos" aria-label="Ingresos"><svg class="ic" aria-hidden="true"><use href="#ico-box"></use></svg><span>Ingresos</span></button>
 <button type="button" class="side-link" data-target="mod-despachos" aria-label="Despachos"><svg class="ic" aria-hidden="true"><use href="#ico-truck"></use></svg><span>Despachos</span></button>
 <button type="button" class="side-link" data-target="mod-consumos" aria-label="Consumos"><svg class="ic" aria-hidden="true"><use href="#ico-check"></use></svg><span>Consumos</span></button>
@@ -82,7 +80,7 @@
 <article class="kpi"><div class="kpi-icon tone-3"><svg class="ic" aria-hidden="true"><use href="#ico-bell"></use></svg></div><div class="kpi-detail"><strong>Alertas</strong></div><span class="kpi-value" aria-label="Sin datos disponibles">—</span></article></section>
     <section class="app-section" id="aplicaciones">
      <div class="section-title"><svg class="ic" aria-hidden="true"><use href="#ico-stack"></use></svg><h2>Aplicaciones</h2></div>
-     <div class="module-grid" id="module-grid"><article class="module-tile" id="mod-maestras" data-module="maestras" data-title="Maestras" tabindex="-1"><span class="tile-icon tone-0"><svg class="ic" aria-hidden="true"><use href="#ico-warehouse"></use></svg></span><strong>Maestras</strong><span class="tile-accent" aria-hidden="true"></span></article>
+     <div class="module-grid" id="module-grid"><a href="/maestras" class="module-tile" id="mod-maestras" data-module="maestras" data-title="Maestras" tabindex="-1"><span class="tile-icon tone-0"><svg class="ic" aria-hidden="true"><use href="#ico-warehouse"></use></svg></span><strong>Maestras</strong><span class="tile-accent" aria-hidden="true"></span></a>
 <article class="module-tile" id="mod-ingresos" data-module="ingresos" data-title="Ingresos" tabindex="-1"><span class="tile-icon tone-1"><svg class="ic" aria-hidden="true"><use href="#ico-box"></use></svg></span><strong>Ingresos</strong><span class="tile-accent" aria-hidden="true"></span></article>
 <article class="module-tile" id="mod-despachos" data-module="despachos" data-title="Despachos" tabindex="-1"><span class="tile-icon tone-2"><svg class="ic" aria-hidden="true"><use href="#ico-truck"></use></svg></span><strong>Despachos</strong><span class="tile-accent" aria-hidden="true"></span></article>
 <article class="module-tile" id="mod-consumos" data-module="consumos" data-title="Consumos" tabindex="-1"><span class="tile-icon tone-3"><svg class="ic" aria-hidden="true"><use href="#ico-check"></use></svg></span><strong>Consumos</strong><span class="tile-accent" aria-hidden="true"></span></article>
