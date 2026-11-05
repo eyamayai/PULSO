@@ -1,7 +1,7 @@
 /** PULSO Pages: same-origin authentication, isolated from inventory movement APIs. */
 const COOKIE = '__Host-pulso_session';
 const SESSION_SECONDS = 8 * 60 * 60;
-const PBKDF2_ITERATIONS = 220_000;
+const PBKDF2_ITERATIONS = 100_000;
 const encoder = new TextEncoder();
 const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store, private', 'x-content-type-options': 'nosniff' };
 const json = (value, status = 200, other = {}) => new Response(JSON.stringify(value), {status, headers: {...jsonHeaders, ...other}});
@@ -79,11 +79,14 @@ async function login(request, env) {
   const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-real-ip') || 'ip-desconocida';
   const keys = ['ip:' + await hash(ip), 'email:' + await hash(email)];
   if (await locked(env.DB, keys, now)) return json({ok: false, error: 'DEMASIADOS_INTENTOS'}, 429, {'retry-after':'900'});
-  const user = await env.DB.prepare('SELECT id, email, display_name, role, password_hash, password_salt, password_kdf, active FROM app_users WHERE email = ?').bind(email).first();
+  const user = await env.DB.prepare(`SELECT u.id, u.email, u.display_name, u.role, u.active,
+    p.password_hash AS login_hash, p.password_salt AS login_salt, p.password_kdf AS login_kdf
+    FROM app_users u LEFT JOIN auth_passwords p ON p.user_id = u.id
+    WHERE u.email = ?`).bind(email).first();
   let matches = false;
-  if (user && user.active === 1 && user.password_kdf === 'pbkdf2-sha512-220000') {
-    const derived = await passwordHash(password, user.password_salt);
-    matches = Boolean(derived && constantTimeHexEqual(derived, user.password_hash));
+  if (user && user.active === 1 && user.login_kdf === 'pbkdf2-sha512-100000') {
+    const derived = await passwordHash(password, user.login_salt);
+    matches = Boolean(derived && constantTimeHexEqual(derived, user.login_hash));
   }
   if (!matches) {
     await recordFailure(env.DB, keys, now);

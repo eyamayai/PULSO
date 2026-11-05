@@ -10,12 +10,21 @@ if(!/^[a-z0-9._+%-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)||email.length>254)thro
 if(password.length<14||password.length>128||!/[A-Z]/.test(password)||!/[a-z]/.test(password)||!/[0-9]/.test(password)||!/[^a-zA-Z0-9]/.test(password))
   throw new Error('La contraseña inicial debe tener 14-128 caracteres con mayúscula, minúscula, número y símbolo.');
 const salt=randomBytes(16);
-const derived=pbkdf2Sync(password,salt,220000,32,'sha512');
+const derived=pbkdf2Sync(password,salt,220000,32,'sha512'); // Existing legacy schema, never used by Workers
+const cloudflareSalt=randomBytes(16);
+const cloudflareHash=pbkdf2Sync(password,cloudflareSalt,100000,32,'sha512'); // Cloudflare WebCrypto 100k limit
 const name='Administrador PULSO';
 const q=x=>"'"+x.replaceAll("'","''")+"'";
 const sql=`INSERT INTO app_users (id,email,display_name,password_hash,password_salt,password_kdf,role,active)
  SELECT ${q(randomUUID())},${q(email)},${q(name)},${q(derived.toString('hex'))},${q(salt.toString('hex'))},'pbkdf2-sha512-220000','ADMIN',1
- WHERE NOT EXISTS (SELECT 1 FROM app_users);\n`;
+ WHERE NOT EXISTS (SELECT 1 FROM app_users);
+INSERT INTO auth_passwords (user_id,password_hash,password_salt,password_kdf)
+ SELECT id,${q(cloudflareHash.toString('hex'))},${q(cloudflareSalt.toString('hex'))},'pbkdf2-sha512-100000'
+ FROM app_users WHERE email=${q(email)} AND role='ADMIN' AND active=1
+ AND (SELECT COUNT(*) FROM app_users)=1
+ AND NOT EXISTS (SELECT 1 FROM auth_passwords);
+`;
+
 fs.writeFileSync(path,sql,{mode:0o600});
 if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`PULSO_FIRST_ADMIN_SQL=${path}\n`);
-console.log('Alta del primer administrador preparada con hash PBKDF2 y solo si no existe ningún usuario.');
+console.log('Alta o compatibilidad criptográfica del administrador preparada, sin crear usuarios duplicados ni exponer credenciales.');
