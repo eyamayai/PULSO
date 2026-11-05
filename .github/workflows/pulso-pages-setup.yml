@@ -45,9 +45,10 @@ jobs:
           test -f pages/pulso.css
           test -f pages/pulso-icon.svg
           test -s pages/logo-original.webp
+          test -s pages/logo-original-encuadrado.webp
           test -s pages/icono-original.webp
           test -s pages/acceso.css
-          grep -q 'logo-original.webp' pages/main.html
+          grep -q 'logo-original-encuadrado.webp' pages/main.html
           grep -q 'icono-original.webp' pages/main.html
           grep -q 'acceso.css' pages/main.html
           grep -q 'overflow:hidden' pages/acceso.css
@@ -70,7 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/icono-original.webp pages/acceso.css pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/_headers "$RUNNER_TEMP/pulso-public/"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
 
       - name: Verificar página pública y mostrar enlace
@@ -85,7 +86,7 @@ jobs:
           READY=false
           for intento in $(seq 1 18); do
             CODE=$(curl --location --max-time 12 --silent --show-error --output "$RUNNER_TEMP/pulso-web.html" --write-out "%{http_code}" "$URL" || true)
-            if [ "$CODE" = '200' ] && grep -q 'logo-original.webp' "$RUNNER_TEMP/pulso-web.html" && grep -q 'icono-original.webp' "$RUNNER_TEMP/pulso-web.html" && grep -q 'Bienvenido' "$RUNNER_TEMP/pulso-web.html"; then
+            if [ "$CODE" = '200' ] && grep -q 'logo-original-encuadrado.webp' "$RUNNER_TEMP/pulso-web.html" && grep -q 'icono-original.webp' "$RUNNER_TEMP/pulso-web.html" && grep -q 'Bienvenido' "$RUNNER_TEMP/pulso-web.html"; then
               READY=true
               break
             fi
@@ -96,7 +97,7 @@ jobs:
             echo 'Cloudflare confirmó la subida, pero /main aún no pasa la verificación pública.' >&2
             exit 1
           fi
-          for asset in logo-original.webp icono-original.webp acceso.css; do
+          for asset in logo-original.webp logo-original-encuadrado.webp icono-original.webp acceso.css; do
             HTTP=$(curl --silent --show-error --location --max-time 15 --output "$RUNNER_TEMP/$asset" --write-out "%{http_code}" "https://${PULSO_PAGES_DOMAIN}/$asset" || true)
             if [ "$HTTP" != "200" ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
               echo "Recurso de marca no publicado: $asset (HTTP $HTTP)" >&2
