@@ -1,33 +1,49 @@
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#073c36"><meta name="robots" content="noindex,nofollow">
-<title>PULSO | Acceso</title><link rel="icon" href="/pulso-icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/pulso.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#073c36">
+<meta name="robots" content="noindex,nofollow">
+<title>PULSO | Acceso</title>
+<link rel="icon" type="image/webp" href="/icono-original.webp">
+<link rel="stylesheet" href="/acceso.css">
 </head>
 <body>
-<main class="auth-page">
-<div class="auth-panel">
-  <section class="auth-visual" aria-label="Identidad PULSO">
-    <div class="wordmark light"><img src="/pulso-icon.svg" alt=""><div><strong>PULSO</strong><small>MinTIC · COSTA R1</small></div></div>
-    <div class="halo" aria-hidden="true"><img src="/pulso-icon.svg" alt=""></div>
-    <div class="auth-meta"><span class="eyebrow">DOMINION · CLARO</span><h1>Plataforma Unificada de Logística, Seguimiento y Operaciones</h1></div>
-  </section>
-  <section class="auth-content" aria-label="Acceso al sistema">
-    <div class="login-box">
-      <div class="top-identity"><img src="/pulso-icon.svg" alt="Icono PULSO"><span>PORTAL OPERATIVO</span></div>
-      <h2>¡Bienvenido!</h2>
-      <p class="caption">Plataforma Unificada de Logística, Seguimiento y Operaciones</p>
-      <p class="region">MinTIC - Costa R1</p>
-      <div class="field"><label for="email">Correo electrónico</label><input id="email" type="email" autocomplete="email" placeholder="correo@empresa.com" disabled></div>
-      <div class="field"><label for="password">Contraseña</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" disabled></div>
-      <button class="primary" type="button" disabled>Iniciar sesión</button>
-      <div class="auth-foot"><span>Acceso en preparación</span><a class="preview-link" href="/inicio">Vista de inicio</a></div>
-      <div class="auth-bottom">PULSO · MinTIC - Costa R1</div>
+<main class="login-page">
+  <div class="wave wave-top" aria-hidden="true"></div>
+  <div class="wave wave-bottom" aria-hidden="true"></div>
+  <div class="orbit-zone" aria-hidden="true">
+    <div class="orbit orbit-outer"></div>
+    <div class="orbit orbit-mid"></div>
+    <div class="orbit orbit-inner"></div>
+    <div class="orbit-glow"></div>
+    <img class="brand-icon" src="/icono-original.webp" alt="">
+  </div>
+  <section class="login-card" aria-labelledby="login-heading">
+    <div class="login-card-inner">
+      <div class="logo-panel">
+        <img class="brand-logo" src="/logo-original.webp" alt="PULSO. El pulso de tu operación.">
+      </div>
+      <div class="portal-label"><span>Portal operativo</span></div>
+      <h1 id="login-heading">Bienvenido</h1>
+      <p class="subtitle">Acceso corporativo</p>
+      <form class="login-form" aria-label="Inicio de sesión">
+        <label class="sr-only" for="login-email">Correo electrónico</label>
+        <div class="field">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg>
+          <input id="login-email" type="email" placeholder="Correo electrónico" autocomplete="username" disabled>
+        </div>
+        <label class="sr-only" for="login-password">Contraseña</label>
+        <div class="field">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+          <input id="login-password" type="password" placeholder="Contraseña" autocomplete="current-password" disabled>
+        </div>
+        <button class="sign-in" type="button" disabled aria-label="Iniciar sesión: acceso aún no habilitado">Iniciar sesión</button>
+      </form>
+      <p class="project-label">MinTIC · Costa R1</p>
     </div>
   </section>
-</div>
 </main>
 </body>
 </html>
