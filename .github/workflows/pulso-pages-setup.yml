@@ -59,7 +59,13 @@ jobs:
           grep -q 'logo-original-encuadrado.webp' pages/inicio.html
           grep -q 'icono-original.webp' pages/inicio.html
           grep -q 'inicio-ui.js' pages/inicio.html
-          grep -q 'Sin información disponible' pages/inicio.html
+          grep -q 'class="sidebar"' pages/inicio.html
+          grep -q 'class="topbar"' pages/inicio.html
+          grep -q 'id="module-search"' pages/inicio.html
+          grep -q '14' <(echo 14)
+          grep -q '#052b27' pages/pulso.css
+          grep -q 'grid-template-columns:repeat(7' pages/pulso.css
+          test "$(grep -o 'class="module-tile"' pages/inicio.html | wc -l)" -eq 14
           node --check pages/inicio-ui.js
           grep -q 'overflow:hidden' pages/acceso.css
           if grep -q 'Plataforma Unificada de Logística' pages/main.html; then
