@@ -70,7 +70,7 @@ jobs:
           node --check pages/usuarios.js
           node --check pages/personal-access.js
           grep -q 'id="personnel-access-panel"' pages/maestras.html
-          grep -q 'id="personnel-select-all"' pages/maestras.js
+          grep -q "check.id='personnel-select-all'" pages/maestras.js
           node --check pages/activar.js
           node --check pages/maestras.js
           node --check pages/maestras-import.js
