@@ -33,3 +33,5 @@ Cuarta pestaña de **Maestras**. Una sola maestra distingue almacenes administra
 - `pages/maestras.html`, `pages/maestras.js`, `pages/bodegas.js`, `pages/maestras-import.js`, `pages/maestras.css`.
 
 Los movimientos del módulo Ingresos aún no están habilitados y la ausencia de PDF no es bloqueante según la decisión aprobada para ese módulo.
+
+La tabla heredada `master_warehouses` (code, name, active) se conserva intacta para compatibilidad. La maestra de operación utiliza `master_logistics_locations`, sin importar registros antiguos ni añadir una segunda pestaña.

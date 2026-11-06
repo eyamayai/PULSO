@@ -1,6 +1,7 @@
+-- Tabla nueva que no cambia master_warehouses heredada (code,name,active).
 -- PULSO: Maestra de Bodegas y Aliados. Base vacía, sin preasignaciones.
 PRAGMA foreign_keys=ON;
-CREATE TABLE IF NOT EXISTS master_warehouses (
+CREATE TABLE IF NOT EXISTS master_logistics_locations (
  id TEXT PRIMARY KEY NOT NULL,
  centro TEXT NOT NULL COLLATE NOCASE,
  almacen TEXT NOT NULL COLLATE NOCASE,
@@ -14,10 +15,10 @@ CREATE TABLE IF NOT EXISTS master_warehouses (
  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(centro,almacen)
 );
-CREATE INDEX IF NOT EXISTS idx_warehouse_admin_active ON master_warehouses(administration,is_active);
+CREATE INDEX IF NOT EXISTS idx_warehouse_admin_active ON master_logistics_locations(administration,is_active);
 CREATE TABLE IF NOT EXISTS master_warehouse_audit (
  id TEXT PRIMARY KEY NOT NULL,
- warehouse_id TEXT NOT NULL REFERENCES master_warehouses(id),
+ warehouse_id TEXT NOT NULL REFERENCES master_logistics_locations(id),
  action TEXT NOT NULL CHECK (action IN ('CREAR','EDITAR','ACTIVAR','DESACTIVAR')),
  actor_id TEXT NOT NULL REFERENCES app_users(id),
  changed_fields TEXT NOT NULL,

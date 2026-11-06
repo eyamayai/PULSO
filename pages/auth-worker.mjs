@@ -781,7 +781,7 @@ async function warehouseHandler(request,env,user) {
     if(active!==null&&!['1','0'].includes(active))return masterBad('FILTRO_NO_VALIDO');
     const rows=await env.DB.prepare(
       "SELECT id,centro,almacen,description,administration,department,is_active,created_at,updated_at "+
-      "FROM master_warehouses WHERE (? IS NULL OR administration=?) AND (? IS NULL OR is_active=?) "+
+      "FROM master_logistics_locations WHERE (? IS NULL OR administration=?) AND (? IS NULL OR is_active=?) "+
       "ORDER BY department,description COLLATE NOCASE LIMIT 2000"
     ).bind(administration,administration,active===null?null:Number(active),active===null?null:Number(active)).all();
     return json({ok:true,items:rows.results||[]});
@@ -796,7 +796,7 @@ async function warehouseHandler(request,env,user) {
   if(editing){
     if(typeof input.id!=='string'||!/^[0-9a-f-]{36}$/i.test(input.id))
       return masterBad('ID_INVALIDO');
-    old=await env.DB.prepare('SELECT * FROM master_warehouses WHERE id=?').bind(input.id).first();
+    old=await env.DB.prepare('SELECT * FROM master_logistics_locations WHERE id=?').bind(input.id).first();
     if(!old)return masterBad('BODEGA_NO_ENCONTRADA',404);
     // Centro y Almacén identifican un almacén SAP: no se cambian tras crearlo.
     if((Object.hasOwn(input,'centro')&&trimmed(input.centro,30).toUpperCase()!==old.centro)||
@@ -805,7 +805,7 @@ async function warehouseHandler(request,env,user) {
   }else if(Object.hasOwn(input,'id'))return masterBad('ID_NO_PERMITIDO');
   const value=normalizeWarehouse({...old,...input});
   if(!value)return masterBad('DATOS_BODEGA_INVALIDOS',400);
-  const existing=await env.DB.prepare('SELECT id FROM master_warehouses WHERE centro=? AND almacen=? LIMIT 1')
+  const existing=await env.DB.prepare('SELECT id FROM master_logistics_locations WHERE centro=? AND almacen=? LIMIT 1')
     .bind(value.centro,value.almacen).first();
   if(existing&&(!old||existing.id!==old.id))return masterBad('CENTRO_ALMACEN_DUPLICADO',409);
   const keys=Object.keys(value),id=old?.id||crypto.randomUUID(),actor=user.id;
@@ -814,9 +814,9 @@ async function warehouseHandler(request,env,user) {
   const action=old&&changed.length===1&&changed[0]==='is_active'
     ?(value.is_active?'ACTIVAR':'DESACTIVAR'):old?'EDITAR':'CREAR';
   const stmt=editing
-    ?env.DB.prepare('UPDATE master_warehouses SET '+keys.map(k=>k+'=?').join(',')+
+    ?env.DB.prepare('UPDATE master_logistics_locations SET '+keys.map(k=>k+'=?').join(',')+
       ',updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(...keys.map(k=>value[k]),actor,id)
-    :env.DB.prepare('INSERT INTO master_warehouses(id,'+keys.join(',')+',created_by,updated_by) VALUES ('+
+    :env.DB.prepare('INSERT INTO master_logistics_locations(id,'+keys.join(',')+',created_by,updated_by) VALUES ('+
       Array(keys.length+3).fill('?').join(',')+')').bind(id,...keys.map(k=>value[k]),actor,actor);
   const audit=env.DB.prepare(
     'INSERT INTO master_warehouse_audit(id,warehouse_id,action,actor_id,changed_fields) VALUES (?,?,?,?,?)'
@@ -866,7 +866,7 @@ async function bulkWarehouses(request,env,user){
   }
   if(normalized.length){
     const existing=await env.DB.prepare(
-      "SELECT centro,almacen FROM master_warehouses "+
+      "SELECT centro,almacen FROM master_logistics_locations "+
       "WHERE centro || '|' || almacen IN (SELECT value FROM json_each(?))"
     ).bind(JSON.stringify([...keys.keys()])).all();
     for(const record of existing.results||[]){
@@ -883,7 +883,7 @@ async function bulkWarehouses(request,env,user){
   const cols=['id',...WAREHOUSE_FIELDS];
   const selects=cols.map(k=>"json_extract(value,'$."+k+"')").join(',');
   const insert=env.DB.prepare(
-    'INSERT INTO master_warehouses('+cols.join(',')+',created_by,updated_by) '+
+    'INSERT INTO master_logistics_locations('+cols.join(',')+',created_by,updated_by) '+
     'SELECT '+selects+',?,? FROM json_each(?)'
   ).bind(user.id,user.id,jsonRows);
   const audit=env.DB.prepare(

@@ -546,7 +546,7 @@ test('Cuarta maestra empieza vacía; acceso exclusivo ADMIN y lectura filtrada',
   const res=await warehouseApi(x,cookie);
   assert.equal(res.status,200);
   assert.deepEqual((await res.json()).items,[]);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouse_audit').get().n,0);
 });
 test('Centro y almacén forman clave única, preservan ceros y distinguen PROPIA de ALIADO',async()=>{
@@ -572,7 +572,7 @@ test('Centro y almacén forman clave única, preservan ceros y distinguen PROPIA
   assert.equal(items.length,1);
   assert.equal(items[0].id,other);
   assert.equal(items[0].department,'LA GUAJIRA');
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,2);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,2);
 });
 test('Editar y desactivar un almacén conserva su identidad y auditoría',async()=>{
   const x=setup(),cookie=await adminCookie(x);
@@ -603,22 +603,22 @@ test('Excel de Bodegas y Aliados valida primero y registra lote completo o ningu
   let r=await warehouseImport(x,cookie,rows);
   assert.equal(r.status,200);
   assert.equal((await r.json()).valid,true);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
   r=await warehouseImport(x,cookie,[...rows,{...warehouse('9999','0001'),administration:'OTRA'}],'commit');
   assert.equal(r.status,422);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
   r=await warehouseImport(x,cookie,[...rows,rows[1]],'commit');
   assert.equal(r.status,422);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
   r=await warehouseImport(x,cookie,rows,'commit');
   assert.equal(r.status,201);
   assert.equal((await r.json()).inserted,120);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,120);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,120);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouse_audit').get().n,120);
-  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM master_warehouses WHERE administration='PROPIA'").get().n,60);
+  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM master_logistics_locations WHERE administration='PROPIA'").get().n,60);
   r=await warehouseImport(x,cookie,rows,'commit');
   assert.equal(r.status,422);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,120);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,120);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,0);
 });
@@ -631,5 +631,5 @@ test('No permite más de 1000 filas, origen externo ni perfiles sin administraci
   x.database.prepare("UPDATE app_users SET role='AUDITOR' WHERE email='admin@example.com'").run();
   assert.equal((await warehouseApi(x,cookie)).status,403);
   assert.equal((await warehouseImport(x,cookie,rows,'commit')).status,403);
-  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
 });
