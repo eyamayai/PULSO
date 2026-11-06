@@ -115,6 +115,7 @@ test('Catálogo SAP único y perfil de serie obligatorio, sin generar inventario
 });
 test('Solo ADMIN edita maestras y POST bloquea otros orígenes',async()=>{
  const x=setup();const cookie=await adminCookie(x);
+ x.addUser('respaldo1@example.com','ClaveRespaldoSegura2026!');
  x.database.prepare("UPDATE app_users SET role='AUDITOR' WHERE email='admin@example.com'").run();
  assert.equal((await worker.fetch(x.req('/api/maestras/personal',{headers:{cookie}}),x.env)).status,403);
  assert.equal((await worker.fetch(x.req('/maestras',{headers:{cookie}}),x.env)).status,302);
@@ -195,7 +196,8 @@ test('Carga masiva: protegida por rol, origen, formato y cantidad',async()=>{
   const oversize=Array.from({length:1001},(_,i)=>bulkSupervisor(String(8000000+i)));
   r=await importReq(x,cookie,'SUPERVISORES',oversize,'commit');
   assert.equal(r.status,400);
-  x.database.prepare("UPDATE app_users SET role='AUDITOR' WHERE email='admin@example.com'").run();
+  x.addUser('respaldo2@example.com','ClaveRespaldoSegura2026!');
+ x.database.prepare("UPDATE app_users SET role='AUDITOR' WHERE email='admin@example.com'").run();
   r=await importReq(x,cookie,'SUPERVISORES',[bulkSupervisor()],'commit');
   assert.equal(r.status,403);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
