@@ -73,6 +73,9 @@ jobs:
           grep -q 'id="warehouse-table"' pages/maestras.html
           grep -q 'id="warehouse-dialog"' pages/maestras.html
           grep -q 'BODEGAS' pages/maestras-import.js
+          grep -q 'for(const item of rows)' pages/maestras-import.js
+          grep -q 'id="bulk-preview-count"' pages/maestras.html
+          if grep -q 'rows.slice(0,8)' pages/maestras-import.js; then echo 'La vista previa no debe omitir registros' >&2; exit 1; fi
           node --check pages/bodegas.js
           grep -q 'NATIONAL_WAREHOUSE_DEPARTMENTS' pages/auth-worker.mjs
           grep -q 'CUNDINAMARCA' cloudflare/migrations/0008_departamentos_aliados.sql

@@ -84,11 +84,13 @@
     const h=document.createElement('tr');
     for(const [title] of def.columns){const th=document.createElement('th');th.textContent=title;h.append(th);}
     thead.append(h);
-    for(const item of rows.slice(0,8)){
+    // Mostrar todas las filas del Excel: la tabla tiene desplazamiento interno.
+    for(const item of rows){
       const tr=document.createElement('tr');
       for(const [,key] of def.columns){const td=document.createElement('td');td.textContent=key==='is_active'?(item.is_active?'ACTIVO':'INACTIVO'):(item[key]||'');tr.append(td);}
       tbody.append(tr);
     }
+    $('bulk-preview-count').textContent='Vista previa completa: '+rows.length+' registro'+(rows.length===1?'':'s')+'. Desplázate para revisar todos.';
     $('bulk-preview-area').hidden=false;
   }
   function cellText(cell){
