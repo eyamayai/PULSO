@@ -118,6 +118,12 @@ jobs:
       - name: Asociar Pages con D1 existente y preparar migración
         run: node .github/scripts/prepare-cloudflare-auth.mjs
 
+      - name: Inspeccionar esquema heredado de bodegas sin leer registros
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "PRAGMA table_info(master_warehouses)"
+
       - name: Crear tablas de acceso sin tocar inventario
         shell: bash
         run: |
