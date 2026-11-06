@@ -17,7 +17,7 @@ if(home.status!==200)throw new Error('La sesión no puede acceder a Inicio; HTTP
 const masters=await fetch(origin+'/maestras',{redirect:'manual',headers:{Cookie:cookie}});
 if(masters.status!==200)throw new Error('El administrador no puede abrir Maestras; HTTP '+masters.status);
 const mastersHtml=await masters.text();
-if(!mastersHtml.includes('id="tab-personal"')||!mastersHtml.includes('id="tab-catalogo"'))
+if(!mastersHtml.includes('id="tab-personal"')||!mastersHtml.includes('id="tab-catalogo"')||!mastersHtml.includes('id="tab-usuarios"')||!mastersHtml.includes('usuarios.js'))
   throw new Error('La nueva pantalla de Maestras no es la versión publicada');
 for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const result=await fetch(origin+endpoint,{redirect:'manual',headers:{Cookie:cookie}});
@@ -25,6 +25,16 @@ for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const data=await result.json();
   if(!data.ok||!Array.isArray(data.items))throw new Error('Respuesta inválida de '+endpoint);
 }
+const userResponse=await fetch(origin+'/api/usuarios',{redirect:'manual',headers:{Cookie:cookie}});
+if(userResponse.status!==200)throw new Error('El administrador no puede consultar Usuarios y Permisos; HTTP '+userResponse.status);
+const userData=await userResponse.json();
+if(!userData.ok||!Array.isArray(userData.items)||!userData.items.some(u=>u.role==='ADMIN'))
+  throw new Error('No se recuperó correctamente la lista de cuentas autorizadas');
+const anonymous=await fetch(origin+'/api/usuarios',{redirect:'manual'});
+if(anonymous.status!==401)throw new Error('La API de usuarios no bloquea la consulta anónima');
+const activation=await fetch(origin+'/activar',{redirect:'manual'});
+if(activation.status!==200||!(await activation.text()).includes('activation-form'))
+  throw new Error('La página de activación de contraseñas no está publicada');
 let bulkReady=false;
 let lastBulkStatus=0;
 for(let retry=1;retry<=15;retry++){
@@ -48,4 +58,4 @@ const logout=await fetch(origin+'/api/auth/logout',{method:'POST',redirect:'manu
 if(!logout.ok)throw new Error('Falló el cierre de sesión');
 const after=await fetch(origin+'/inicio',{redirect:'manual',headers:{Cookie:cookie}});
 if(after.status!==302||after.headers.get('location')!=='/main')throw new Error('La sesión revocada aún puede acceder a Inicio');
-console.log('Acceso, Maestras, autorización ADMIN, D1 y cierre de sesión verificados sin registrar credenciales.');
+console.log('Acceso y cierre, Usuarios/ADMIN, Maestras y activación protegida verificados sin exponer credenciales.');

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#073c36">
+<title>PULSO | Activar acceso</title>
+<link rel="icon" href="/icono-original.webp" type="image/webp">
+<link rel="stylesheet" href="/activar.css">
+<script src="/activar.js" defer></script>
+</head>
+<body>
+<main class="activation-shell">
+  <section class="activation-card" aria-labelledby="activation-title">
+    <img class="brand-image" src="/logo-original-encuadrado.webp" alt="PULSO" width="205" height="86">
+    <div class="activation-intro"><span class="eyebrow">ACCESO SEGURO</span><h1 id="activation-title">Activa tu cuenta</h1><p>Establece tu contraseña para ingresar a PULSO.</p></div>
+    <form id="activation-form" autocomplete="off">
+      <label>Correo de acceso <input id="activation-email" type="email" maxlength="254" autocomplete="username" required placeholder="correo@empresa.com"></label>
+      <label>Contraseña nueva <input id="activation-password" type="password" minlength="14" maxlength="128" autocomplete="new-password" required placeholder="Mínimo 14 caracteres"></label>
+      <label>Confirmar contraseña <input id="activation-confirm" type="password" minlength="14" maxlength="128" autocomplete="new-password" required placeholder="Repite la contraseña"></label>
+      <p class="password-hint">Usa al menos 14 caracteres, con mayúsculas, minúsculas, números y símbolos.</p>
+      <p id="activation-status" role="status" aria-live="polite" class="activation-status" hidden></p>
+      <button id="activation-submit" class="activation-button" type="submit">Activar cuenta</button>
+    </form>
+    <div id="activation-done" class="activation-done" hidden><p>Tu contraseña está configurada. Ya puedes iniciar sesión.</p><a href="/main" class="activation-button">Ir a iniciar sesión</a></div>
+    <a href="/main" class="activation-back">Volver al inicio de sesión</a>
+  </section>
+</main>
+</body>
+</html>

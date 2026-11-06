@@ -63,6 +63,7 @@
     const b=document.createElement('button');b.type='button';b.textContent=text;b.className=cls;b.addEventListener('click',callback);return b;
   }
   function render(){
+    if(tab==='usuarios')return;
     const head=$('master-table-head'),body=$('master-table-body'),empty=$('master-empty');
     const personal=tab==='personal';
     head.replaceChildren();body.replaceChildren();
@@ -109,13 +110,23 @@
       const active=b.dataset.tab===tab;
       b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));
     });
-    const typeFilter=$('type-filter');
-    typeFilter.replaceChildren(new Option('Todos',''));
-    for(const [value,label] of (tab==='personal'?[['SUPERVISOR','Supervisores'],['TECNICO','Técnicos']]:[['EQUIPO','Equipos'],['MATERIAL','Materiales']])) {
-      typeFilter.add(new Option(label,value));
+    const users=tab==='usuarios';
+    $('master-toolbar').hidden=users;
+    $('master-table-scroll').hidden=users;
+    $('users-view').hidden=!users;
+    $('new-record').hidden=users;
+    $('bulk-open').hidden=users;
+    $('user-new').hidden=!users;
+    if(!users){
+      const typeFilter=$('type-filter');
+      typeFilter.replaceChildren(new Option('Todos',''));
+      for(const [value,label] of (tab==='personal'?[['SUPERVISOR','Supervisores'],['TECNICO','Técnicos']]:[['EQUIPO','Equipos'],['MATERIAL','Materiales']])) {
+        typeFilter.add(new Option(label,value));
+      }
+      $('master-filter').value='';
+      render();
     }
-    $('master-filter').value='';
-    render();
+    window.dispatchEvent(new CustomEvent('pulso:tab-changed',{detail:{tab}}));
   }
   function showPersonFields(){
     const isTech=$('person-type').value==='TECNICO';

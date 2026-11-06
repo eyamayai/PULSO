@@ -7,9 +7,10 @@ import worker from '../pages/auth-worker.mjs';
 const sql = fs.readFileSync(new URL('../cloudflare/migrations/0002_autenticacion.sql', import.meta.url), 'utf8');
 const sql3 = fs.readFileSync(new URL('../cloudflare/migrations/0003_auth_passwords_compat.sql', import.meta.url), 'utf8');
 const sql4=fs.readFileSync(new URL('../cloudflare/migrations/0004_maestras_personal_y_sap.sql',import.meta.url),'utf8');
+const sql5=fs.readFileSync(new URL('../cloudflare/migrations/0005_usuarios_permisos.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup() {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4);
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5);
   const wrap = stmt => {
     let args=[];
     return {
@@ -223,4 +224,172 @@ test('Supervisores de Cesar, Guajira y San Andrés pasan la validación masiva s
   assert.equal(data.valid,false);
   assert.equal(data.errors[0].field,'Departamento');
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,3);
+});
+
+
+const auxiliar={
+  email:'auxiliar@example.com', display_name:'Auxiliar de Operaciones',
+  role:'ADMIN',document_number:'1070000123',job_title:'Auxiliar de operaciones',
+  phone:'3001112233'
+};
+const securePassword='ClaveSeguraAuxiliar2026!';
+async function createAccount(x,cookie,payload=auxiliar){
+  const r=await worker.fetch(x.req('/api/usuarios',{
+    method:'POST',headers:{cookie},data:payload
+  }),x.env);
+  assert.equal(r.status,201,'La creación administrativa debe devolver 201');
+  return r.json(); 
+}
+async function activation(x,token,email=auxiliar.email,password=securePassword){
+  return worker.fetch(x.req('/api/auth/activar',{
+    method:'POST',data:{token,email,password}
+  }),x.env);
+}
+async function signin(x,email,password){
+  return worker.fetch(x.req('/api/auth/login',{
+    method:'POST',data:{email,password}
+  }),x.env);
+}
+test('Usuarios: tercero independiente de personal, administrador invitado sin clave automática',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const response=await worker.fetch(x.req('/api/usuarios',{headers:{cookie}}),x.env);
+  assert.equal(response.status,200);
+  const bootstrap=(await response.json()).items;
+  assert.equal(bootstrap.length,1);
+  assert.equal(bootstrap[0].role,'ADMIN');
+  const created=await createAccount(x,cookie);
+  assert.match(created.link,/^https:\/\/pulso-mintic\.pages\.dev\/activar#[A-Za-z0-9_-]{43}$/);
+  assert.equal(x.database.prepare('SELECT active FROM app_users WHERE id=?').get(created.id).active,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM auth_passwords').get().n,1);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
+  const inviteHash=x.database.prepare('SELECT token_hash FROM app_user_invitations WHERE user_id=?').get(created.id).token_hash;
+  assert.equal(inviteHash.length,64);
+  assert.ok(!created.link.includes(inviteHash));
+  const all=await worker.fetch(x.req('/api/usuarios',{headers:{cookie}}),x.env);
+  const items=(await all.json()).items;
+  assert.equal(items.length,2);
+  assert.equal(items.find(u=>u.id===created.id).credential_status,'INVITADO');
+  assert.equal(items.find(u=>u.id===created.id).job_title,'Auxiliar de operaciones');
+});
+test('Invitación de un uso: activa el Administrador, contraseña propia, login y control de perfiles',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await createAccount(x,cookie);
+  const token=created.link.split('#')[1];
+  let r=await activation(x,token,'equivocado@example.com');
+  assert.equal(r.status,400);
+  r=await activation(x,token,auxiliar.email,'corta');
+  assert.equal(r.status,400);
+  r=await activation(x,token);
+  assert.equal(r.status,200);
+  assert.equal((await r.json()).ok,true);
+  assert.equal(x.database.prepare('SELECT active FROM app_users WHERE id=?').get(created.id).active,1);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM auth_passwords').get().n,2);
+  r=await activation(x,token);
+  assert.equal(r.status,400,'No se debe reutilizar una invitación');
+  const login=await signin(x,auxiliar.email,securePassword);
+  assert.equal(login.status,200);
+  assert.equal((await login.json()).user.role,'ADMIN');
+  const newCookie=login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await worker.fetch(x.req('/maestras',{headers:{cookie:newCookie}}),x.env)).status,200);
+  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM app_user_audit WHERE action='ACEPTAR_INVITACION'").get().n,1);
+});
+test('Invitación vencida y nueva invitación invalidan enlace anterior, sin activar cuentas',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const first=await createAccount(x,cookie);
+  const token=first.link.split('#')[1];
+  const rerun=await worker.fetch(x.req('/api/usuarios/invitaciones',{
+    method:'POST',headers:{cookie},data:{id:first.id}
+  }),x.env);
+  assert.equal(rerun.status,201);
+  const newer=(await rerun.json()).link.split('#')[1];
+  assert.notEqual(newer,token);
+  assert.equal((await activation(x,token)).status,400);
+  x.database.prepare('UPDATE app_user_invitations SET expires_at=0 WHERE user_id=?').run(first.id);
+  assert.equal((await activation(x,newer)).status,400);
+  assert.equal(x.database.prepare('SELECT active FROM app_users WHERE id=?').get(first.id).active,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM auth_passwords').get().n,1);
+});
+test('Cambio de perfil o desactivación revoca las sesiones previas',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await createAccount(x,cookie,{...auxiliar,role:'SUPERVISOR'});
+  assert.equal((await activation(x,created.link.split('#')[1])).status,200);
+  const session=await signin(x,auxiliar.email,securePassword);
+  assert.equal(session.status,200);
+  const userCookie=session.headers.get('set-cookie').split(';')[0];
+  assert.equal((await worker.fetch(x.req('/inicio',{headers:{cookie:userCookie}}),x.env)).status,200);
+  const changed=await worker.fetch(x.req('/api/usuarios',{
+    method:'PATCH',headers:{cookie},data:{id:created.id,role:'ADMIN'}
+  }),x.env);
+  assert.equal(changed.status,200);
+  assert.equal((await worker.fetch(x.req('/inicio',{headers:{cookie:userCookie}}),x.env)).status,302);
+  const newSession=await signin(x,auxiliar.email,securePassword);
+  assert.equal((await newSession.json()).user.role,'ADMIN');
+  const cookie2=newSession.headers.get('set-cookie').split(';')[0];
+  const disable=await worker.fetch(x.req('/api/usuarios',{
+    method:'PATCH',headers:{cookie},data:{id:created.id,active:false}
+  }),x.env);
+  assert.equal(disable.status,200);
+  assert.equal((await worker.fetch(x.req('/inicio',{headers:{cookie:cookie2}}),x.env)).status,302);
+  assert.equal((await signin(x,auxiliar.email,securePassword)).status,401);
+});
+test('Último administrador protegido por API y trigger SQL, sin perder acceso',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const id=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+  const patch=async data=>worker.fetch(x.req('/api/usuarios',{method:'PATCH',headers:{cookie},data:{id,...data}}),x.env);
+  assert.equal((await patch({role:'AUDITOR'})).status,409);
+  assert.equal((await patch({active:false})).status,409);
+  assert.throws(()=>x.database.prepare("UPDATE app_users SET active=0 WHERE id=?").run(id),/ULTIMO_ADMINISTRADOR/);
+  assert.throws(()=>x.database.prepare("UPDATE app_users SET role='TECNICO' WHERE id=?").run(id),/ULTIMO_ADMINISTRADOR/);
+  assert.equal((await worker.fetch(x.req('/inicio',{headers:{cookie}}),x.env)).status,200);
+});
+test('Solo ADMIN gestiona Usuarios; bloquea datos duplicados, otro origen y habilitar sin contraseña',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await createAccount(x,cookie);
+  const second=await worker.fetch(x.req('/api/usuarios',{
+    method:'POST',headers:{cookie},data:{...auxiliar,email:'otra@example.com'}
+  }),x.env);
+  assert.equal(second.status,409,'No se permite identificación duplicada');
+  const duplicate=await worker.fetch(x.req('/api/usuarios',{
+    method:'POST',headers:{cookie},data:{...auxiliar,document_number:'11113333'}
+  }),x.env);
+  assert.equal(duplicate.status,409,'No se permite correo duplicado');
+  const enable=await worker.fetch(x.req('/api/usuarios',{
+    method:'PATCH',headers:{cookie},data:{id:created.id,active:true}
+  }),x.env);
+  assert.equal(enable.status,409);
+  const other=await worker.fetch(x.req('/api/usuarios',{
+    method:'POST',origin:'https://externo.example',headers:{cookie},data:auxiliar
+  }),x.env);
+  assert.equal(other.status,403);
+  assert.equal((await worker.fetch(x.req('/api/usuarios'),x.env)).status,401);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,2);
+});
+test('Consulta/Auditor no puede abrir Maestras ni crear administradores',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await createAccount(x,cookie,{...auxiliar,role:'AUDITOR'});
+  assert.equal((await activation(x,created.link.split('#')[1])).status,200);
+  const login=await signin(x,auxiliar.email,securePassword);
+  const readonlyCookie=login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await worker.fetch(x.req('/api/usuarios',{headers:{cookie:readonlyCookie}}),x.env)).status,403);
+  assert.equal((await worker.fetch(x.req('/maestras',{headers:{cookie:readonlyCookie}}),x.env)).status,302);
+  assert.equal((await worker.fetch(x.req('/api/usuarios',{method:'POST',headers:{cookie:readonlyCookie},data:auxiliar}),x.env)).status,403);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,2);
+});
+test('Restablecimiento de contraseña revoca la anterior y las sesiones existentes',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await createAccount(x,cookie);
+  await activation(x,created.link.split('#')[1]);
+  const login=await signin(x,auxiliar.email,securePassword);
+  assert.equal(login.status,200);
+  const previousCookie=login.headers.get('set-cookie').split(';')[0];
+  const reset=await worker.fetch(x.req('/api/usuarios/invitaciones',{
+    method:'POST',headers:{cookie},data:{id:created.id}
+  }),x.env);
+  assert.equal(reset.status,201);
+  const data=await reset.json();
+  assert.equal(data.purpose,'RESTABLECER');
+  assert.equal((await activation(x,data.link.split('#')[1],auxiliar.email,'ClaveNuevaSegura2026!')).status,200);
+  assert.equal((await worker.fetch(x.req('/api/auth/me',{headers:{cookie:previousCookie}}),x.env)).status,401);
+  assert.equal((await signin(x,auxiliar.email,securePassword)).status,401);
+  assert.equal((await signin(x,auxiliar.email,'ClaveNuevaSegura2026!')).status,200);
 });

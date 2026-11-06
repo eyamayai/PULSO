@@ -389,15 +389,232 @@ async function bulkImport(request,env,user){
   return json({ok:true,inserted:normalized.length,total:normalized.length},201);
 }
 
+
+/* Gestión de cuentas: acceso independiente de las fichas operativas. */
+const USER_ROLES = new Set(['ADMIN','SUPERVISOR','TECNICO','AUDITOR']);
+const INVITATION_SECONDS = 48 * 60 * 60;
+const own = (o,k) => Object.prototype.hasOwnProperty.call(o,k);
+function userError(code, status=400){return json({ok:false,error:code},status);}
+function userEmail(value){
+  const email=trimmed(value,254).toLowerCase();
+  return /^[a-z0-9._+%-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)&&email.length<=254 ? email : null;
+}
+function userDetail(data){
+  const name=trimmed(data.display_name,120);
+  const role=trimmed(data.role,30).toUpperCase();
+  const doc=trimmed(data.document_number,25).toUpperCase();
+  const job=trimmed(data.job_title,100);
+  const phone=trimmed(data.phone,30);
+  if(name.length<3||name.length>120||!USER_ROLES.has(role)||
+     (doc&&!/^[A-Z0-9-]{4,25}$/.test(doc))||
+     job.length>100||(phone&&!/^[0-9+(). -]{5,30}$/.test(phone)))return null;
+  return {display_name:name,role,document_number:doc||null,job_title:job,phone};
+}
+function createInviteData(id,actor,purpose,now){
+  const token=toBase64url(randomBytes(32));
+  return {token,id,actor,purpose,now,expiry:now+INVITATION_SECONDS};
+}
+async function userAudit(db,userId,actorId,action,fields){
+  return db.prepare('INSERT INTO app_user_audit (id,user_id,actor_id,action,changed_fields) VALUES (?,?,?,?,?)')
+    .bind(crypto.randomUUID(),userId,actorId,action,JSON.stringify(fields));
+}
+async function inviteStatements(db,info){
+  const tokenHash=await hash(info.token);
+  return [
+    db.prepare('UPDATE app_user_invitations SET revoked_at=? WHERE user_id=? AND used_at IS NULL AND revoked_at IS NULL')
+      .bind(info.now,info.id),
+    db.prepare('INSERT INTO app_user_invitations (token_hash,user_id,purpose,created_by,created_at,expires_at) VALUES (?,?,?,?,?,?)')
+      .bind(tokenHash,info.id,info.purpose,info.actor,info.now,info.expiry),
+    await userAudit(db,info.id,info.actor,info.purpose==='ACTIVAR'?'INVITAR':'RESTABLECER',['invitacion'])
+  ];
+}
+function invitationLink(request,token){
+  const origin=new URL(request.url).origin;
+  // El token en # no llega al servidor ni a las cabeceras HTTP en el GET.
+  return origin+'/activar#'+token;
+}
+async function userManagement(request,env,user,path){
+  if(!user)return userError('NO_AUTENTICADO',401);
+  if(user.role!=='ADMIN')return userError('SIN_PERMISOS',403);
+  if(request.method==='GET'&&path==='/api/usuarios'){
+    const result=await env.DB.prepare(
+      "SELECT u.id,u.email,u.display_name,u.role,u.active,u.created_at,"+
+      "d.document_number,d.job_title,d.phone,"+
+      "CASE WHEN p.user_id IS NOT NULL THEN 'CONFIGURADA' WHEN EXISTS ("+
+      "SELECT 1 FROM app_user_invitations i WHERE i.user_id=u.id AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?) "+
+      "THEN 'INVITADO' ELSE 'SIN_CLAVE' END AS credential_status "+
+      "FROM app_users u LEFT JOIN app_user_details d ON d.user_id=u.id "+
+      "LEFT JOIN auth_passwords p ON p.user_id=u.id "+
+      "ORDER BY u.created_at,u.display_name COLLATE NOCASE LIMIT 500"
+    ).bind(Math.floor(Date.now()/1000)).all();
+    return json({ok:true,items:result.results||[],current_user_id:user.id,roles:[...USER_ROLES]});
+  }
+  if(request.method!=='POST'&&request.method!=='PATCH')return userError('METODO_NO_PERMITIDO',405);
+  const parsed=await adminJson(request,3200);
+  if(parsed.error)return userError(parsed.error,parsed.status);
+  const data=parsed.data;
+  const now=Math.floor(Date.now()/1000);
+  if(path==='/api/usuarios/invitaciones'){
+    if(request.method!=='POST'||!fieldsOf(data,['id'])||typeof data.id!=='string')return userError('DATOS_INVALIDOS');
+    const account=await env.DB.prepare('SELECT id,active FROM app_users WHERE id=?').bind(data.id).first();
+    if(!account)return userError('USUARIO_NO_ENCONTRADO',404);
+    const existing=await env.DB.prepare('SELECT user_id FROM auth_passwords WHERE user_id=?').bind(data.id).first();
+    const purpose=existing?'RESTABLECER':'ACTIVAR';
+    if(existing&&account.active!==1)return userError('USUARIO_INACTIVO',409);
+    const info=createInviteData(account.id,user.id,purpose,now);
+    await env.DB.batch(await inviteStatements(env.DB,info));
+    return json({ok:true,link:invitationLink(request,info.token),expires_hours:48,purpose},201);
+  }
+  if(path!=='/api/usuarios')return userError('RUTA_NO_DISPONIBLE',404);
+  if(request.method==='POST'){
+    if(!fieldsOf(data,['email','display_name','role','document_number','job_title','phone']))
+      return userError('CAMPOS_NO_VALIDOS');
+    const email=userEmail(data.email);
+    const v=userDetail(data);
+    if(!email||!v||!v.document_number)return userError('DATOS_INVALIDOS');
+    const id=crypto.randomUUID(),info=createInviteData(id,user.id,'ACTIVAR',now);
+    const stmts=[
+      env.DB.prepare("INSERT INTO app_users (id,email,display_name,password_hash,password_salt,password_kdf,role,active) "+
+        "VALUES (?,?,?,'','','pbkdf2-sha512-220000',?,0)")
+        .bind(id,email,v.display_name,v.role),
+      env.DB.prepare('INSERT INTO app_user_details (user_id,document_number,job_title,phone) VALUES (?,?,?,?)')
+        .bind(id,v.document_number,v.job_title,v.phone),
+      await userAudit(env.DB,id,user.id,'CREAR',['email','display_name','role','document_number','job_title','phone']),
+      ...(await inviteStatements(env.DB,info)).slice(1)
+    ];
+    try{await env.DB.batch(stmts);}
+    catch(e){
+      if(/UNIQUE|constraint/i.test(String(e)))return userError('USUARIO_O_IDENTIFICACION_DUPLICADA',409);
+      throw e;
+    }
+    return json({ok:true,id,link:invitationLink(request,info.token),expires_hours:48},201);
+  }
+  if(!fieldsOf(data,['id','display_name','role','document_number','job_title','phone','active'])||
+    typeof data.id!=='string'||!(/^[a-f0-9-]{36}$/i.test(data.id)))return userError('DATOS_INVALIDOS');
+  const current=await env.DB.prepare(
+    'SELECT u.id,u.display_name,u.role,u.active,d.document_number,d.job_title,d.phone FROM app_users u '+
+    'LEFT JOIN app_user_details d ON d.user_id=u.id WHERE u.id=?'
+  ).bind(data.id).first();
+  if(!current)return userError('USUARIO_NO_ENCONTRADO',404);
+  if(own(data,'active')&&typeof data.active!=='boolean')return userError('DATOS_INVALIDOS');
+  const v=userDetail({
+    display_name:own(data,'display_name')?data.display_name:current.display_name,
+    role:own(data,'role')?data.role:current.role,
+    document_number:own(data,'document_number')?data.document_number:current.document_number,
+    job_title:own(data,'job_title')?data.job_title:current.job_title,
+    phone:own(data,'phone')?data.phone:current.phone
+  });
+  if(!v)return userError('DATOS_INVALIDOS');
+  const active=own(data,'active')?(data.active?1:0):current.active;
+  if(user.id===current.id && (v.role!==current.role || active!==current.active))
+    return userError('NO_MODIFICAR_AUTOPERMISOS',409);
+  if(active===1 && current.active!==1){
+    const credential=await env.DB.prepare('SELECT user_id FROM auth_passwords WHERE user_id=?').bind(current.id).first();
+    if(!credential)return userError('CUENTA_SIN_CLAVE',409);
+  }
+  const fields=['display_name','role','document_number','job_title','phone','active'];
+  const changed=fields.filter(k=>String(k==='active'?active:v[k])!==String(current[k]));
+  if(!changed.length)return json({ok:true,unchanged:true});
+  let action='EDITAR';
+  if(changed.length===1&&changed[0]==='active') action=active?'ACTIVAR':'DESACTIVAR';
+  const stmts=[
+    env.DB.prepare('UPDATE app_users SET display_name=?,role=?,active=? WHERE id=?')
+      .bind(v.display_name,v.role,active,current.id),
+    env.DB.prepare('INSERT INTO app_user_details (user_id,document_number,job_title,phone) VALUES (?,?,?,?) '+
+      'ON CONFLICT(user_id) DO UPDATE SET document_number=excluded.document_number,job_title=excluded.job_title,phone=excluded.phone,updated_at=CURRENT_TIMESTAMP')
+      .bind(current.id,v.document_number,v.job_title,v.phone),
+    await userAudit(env.DB,current.id,user.id,action,changed)
+  ];
+  if(v.role!==current.role||active!==current.active)
+    stmts.push(env.DB.prepare('UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL').bind(now,current.id));
+  try{await env.DB.batch(stmts);}
+  catch(e){
+    if(String(e).includes('ULTIMO_ADMINISTRADOR'))return userError('ULTIMO_ADMINISTRADOR',409);
+    if(/UNIQUE|constraint/i.test(String(e)))return userError('IDENTIFICACION_DUPLICADA',409);
+    throw e;
+  }
+  return json({ok:true,id:current.id,action});
+}
+async function adminJson(request,max=3200){
+  if(!sameOrigin(request))return {error:'ORIGEN_NO_AUTORIZADO',status:403};
+  if(!/application\/json/i.test(request.headers.get('content-type')||''))return {error:'TIPO_NO_VALIDO',status:415};
+  const body=await request.text();
+  if(body.length>max)return {error:'DATOS_INVALIDOS',status:400};
+  try {
+    const data=JSON.parse(body);
+    if(!data||typeof data!=='object'||Array.isArray(data))return {error:'DATOS_INVALIDOS',status:400};
+    return {data};
+  }catch{return {error:'DATOS_INVALIDOS',status:400};}
+}
+async function acceptInvitation(request,env){
+  if(request.method!=='POST')return userError('METODO_NO_PERMITIDO',405);
+  const parsed=await adminJson(request,1800);
+  if(parsed.error)return userError(parsed.error,parsed.status);
+  const data=parsed.data;
+  if(!fieldsOf(data,['token','email','password'])||
+     typeof data.token!=='string'||!(/^[A-Za-z0-9_-]{43}$/.test(data.token))||
+     typeof data.password!=='string'||data.password.length<14||data.password.length>128||
+     !/[A-Z]/.test(data.password)||!/[a-z]/.test(data.password)||
+     !/[0-9]/.test(data.password)||!(/[^A-Za-z0-9]/.test(data.password)))
+    return userError('DATOS_INVALIDOS');
+  const email=userEmail(data.email);
+  if(!email)return userError('DATOS_INVALIDOS');
+  const tokenHash=await hash(data.token);
+  const now=Math.floor(Date.now()/1000);
+  const invitation=await env.DB.prepare(
+    'SELECT i.user_id,i.purpose,u.email,u.active FROM app_user_invitations i '+
+    'JOIN app_users u ON u.id=i.user_id '+
+    'WHERE i.token_hash=? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?'
+  ).bind(tokenHash,now).first();
+  if(!invitation||invitation.email.toLowerCase()!==email)
+    return userError('INVITACION_NO_VALIDA',400);
+  const salt=hex(randomBytes(16));
+  const derived=await passwordHash(data.password,salt);
+  if(!derived)return userError('DATOS_INVALIDOS');
+  // Todas las operaciones permanecen dentro de una transacción D1.
+  // La primera escritura comprueba nuevamente que la invitación no haya sido consumida.
+  const validPredicate='SELECT i.user_id FROM app_user_invitations i WHERE i.token_hash=? AND '+
+    'i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?';
+  const stmts=[
+    env.DB.prepare("INSERT INTO auth_passwords(user_id,password_hash,password_salt,password_kdf) "+
+      "SELECT i.user_id,?,?,'pbkdf2-sha512-100000' FROM app_user_invitations i "+
+      "WHERE i.token_hash=? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>? "+
+      "ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,password_salt=excluded.password_salt,"+
+      "password_kdf=excluded.password_kdf,updated_at=CURRENT_TIMESTAMP")
+      .bind(derived,salt,tokenHash,now),
+    env.DB.prepare('UPDATE app_users SET active=1 WHERE id IN ('+validPredicate+')').bind(tokenHash,now),
+    env.DB.prepare('UPDATE auth_sessions SET revoked_at=? WHERE user_id IN ('+validPredicate+') AND revoked_at IS NULL')
+      .bind(now,tokenHash,now),
+    env.DB.prepare("INSERT INTO app_user_audit(id,user_id,actor_id,action,changed_fields) "+
+      "SELECT ?,i.user_id,i.user_id,'ACEPTAR_INVITACION','[\"password\"]' FROM app_user_invitations i "+
+      "WHERE i.token_hash=? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?")
+      .bind(crypto.randomUUID(),tokenHash,now),
+    env.DB.prepare('UPDATE app_user_invitations SET used_at=? WHERE token_hash=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?')
+      .bind(now,tokenHash,now)
+  ];
+  const outcome=await env.DB.batch(stmts);
+  if(!(outcome[0]?.meta?.changes ?? outcome[0]?.changes))return userError('INVITACION_NO_VALIDA',400);
+  return json({ok:true,redirect:'/main'});
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     try {
-      if (pathname.startsWith('/api/auth/') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
+      if (pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
         if (!env.DB) return json({ok: false, error: 'SERVICIO_NO_CONFIGURADO'}, 503);
         if (pathname === '/api/auth/health' && request.method === 'GET') {
           await env.DB.prepare('SELECT id FROM app_users LIMIT 1').first();
           return json({ok: true, service: 'pulso-auth', ready: true});
+        }
+        if (pathname === '/api/auth/activar') return await acceptInvitation(request,env);
+        if (pathname==='/api/usuarios'||pathname==='/api/usuarios/invitaciones')
+          return await userManagement(request,env,await currentUser(request,env),pathname);
+        if (pathname==='/activar'||pathname==='/activar.html') {
+          if(request.method!=='GET'&&request.method!=='HEAD')return userError('METODO_NO_PERMITIDO',405);
+          const page=securePage(await env.ASSETS.fetch(request));
+          page.headers.set('referrer-policy','no-referrer');
+          return page;
         }
         if (pathname === '/api/maestras/import') return await bulkImport(request,env,await currentUser(request,env));
         if (pathname.startsWith('/api/maestras/')) return await masterHandler(request,env,await currentUser(request,env),pathname);

@@ -13,6 +13,8 @@
 <script src="/exceljs.min.js" defer></script>
 <script src="/maestras.js" defer></script>
 <script src="/maestras-import.js" defer></script>
+<script src="/usuarios.js" defer></script>
+<script src="/usuarios.js" defer></script>
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
@@ -81,23 +83,41 @@
     <div class="master-tabs" role="tablist" aria-label="Tipos de maestras">
      <button type="button" role="tab" class="master-tab active" id="tab-personal" aria-selected="true" data-tab="personal">Personal <span id="personal-count">0</span></button>
      <button type="button" role="tab" class="master-tab" id="tab-catalogo" aria-selected="false" data-tab="catalogo">Equipos y materiales <span id="catalogo-count">0</span></button>
+     <button type="button" role="tab" class="master-tab" id="tab-usuarios" aria-selected="false" data-tab="usuarios">Usuarios y permisos <span id="usuarios-count">0</span></button>
     </div>
     <div class="master-top-actions"><button type="button" id="bulk-open" class="master-secondary">Carga masiva Excel</button>
-    <button type="button" id="new-record" class="master-primary"><span aria-hidden="true">＋</span> Nuevo registro</button></div>
+    <button type="button" id="new-record" class="master-primary"><span aria-hidden="true">＋</span> Nuevo registro</button>
+    <button type="button" id="user-new" class="master-primary" hidden>＋ Nuevo usuario</button></div>
    </div>
-   <div class="master-toolbar">
+   <div class="master-toolbar" id="master-toolbar">
     <div class="master-search"><svg class="ic" aria-hidden="true"><use href="#ico-search"></use></svg><input type="search" id="master-filter" placeholder="Buscar registros..." autocomplete="off" aria-label="Buscar registros"></div>
     <label class="master-filter-label" id="type-filter-label">Tipo <select id="type-filter"><option value="">Todos</option><option value="SUPERVISOR">Supervisores</option><option value="TECNICO">Técnicos</option></select></label>
     <span class="master-total" id="visible-count">0 registros</span>
    </div>
    <p id="master-message" class="master-message" role="status" aria-live="polite" hidden></p>
-   <div class="master-table-scroll">
+   <div class="master-table-scroll" id="master-table-scroll">
     <table class="master-table">
      <thead id="master-table-head"></thead>
      <tbody id="master-table-body"></tbody>
     </table>
     <p class="master-empty" id="master-empty" hidden>No hay registros para mostrar.</p>
    </div>
+  <section class="users-view" id="users-view" hidden aria-label="Usuarios y permisos">
+    <div class="user-view-toolbar">
+      <div class="master-search"><svg class="ic" aria-hidden="true"><use href="#ico-search"></use></svg><input type="search" id="user-search" placeholder="Buscar nombre, documento o correo..." autocomplete="off"></div>
+      <label class="master-filter-label">Perfil <select id="user-role-filter">
+        <option value="">Todos</option><option value="ADMIN">Administrador</option><option value="SUPERVISOR">Supervisor</option>
+        <option value="TECNICO">Técnico</option><option value="AUDITOR">Auditor / Consulta</option></select></label>
+      <span class="master-total" id="user-results-count">0 usuarios</span>
+    </div>
+    <div class="master-table-scroll users-table-scroll">
+      <table class="master-table"><thead><tr>
+        <th>Identificación</th><th>Nombre / Cargo</th><th>Correo</th><th>Perfil</th><th>Acceso</th><th>Estado</th><th>Acciones</th>
+      </tr></thead><tbody id="user-table"></tbody></table>
+      <p id="user-empty" class="master-empty" hidden>No hay usuarios para mostrar.</p>
+    </div>
+    <p class="user-hint">Cada cuenta es independiente del personal operativo. Los accesos se activan mediante una invitación de un solo uso.</p>
+  </section>
   </section>
  </div>
 </main>
@@ -165,6 +185,36 @@
       <button id="bulk-confirm" class="master-primary" type="button" disabled>Importar registros</button>
     </footer>
   </div>
+</dialog>
+
+<dialog id="user-dialog" class="record-dialog" aria-labelledby="user-title">
+ <form id="user-form">
+  <header class="dialog-head"><div><span class="master-eyebrow" id="user-dialog-label">NUEVA CUENTA</span><h2 id="user-title">Usuario de PULSO</h2></div><button class="dialog-x" id="user-dialog-x" type="button" aria-label="Cerrar">×</button></header>
+  <input id="user-id" type="hidden">
+  <div class="field-grid">
+    <label>Identificación <input id="user-document" maxlength="25" placeholder="Número de documento" autocomplete="off" required></label>
+    <label>Perfil de acceso <select id="user-role" required>
+       <option value="AUDITOR">Auditor / Consulta</option><option value="TECNICO">Técnico</option>
+       <option value="SUPERVISOR">Supervisor</option><option value="ADMIN">Administrador</option>
+    </select></label>
+    <label class="span-2">Nombre completo <input id="user-name" required maxlength="120" autocomplete="off"></label>
+    <label class="span-2">Correo de acceso <input id="user-email" type="email" required maxlength="254" autocomplete="off"></label>
+    <label>Cargo laboral <input id="user-title-job" maxlength="100" placeholder="Ej. Auxiliar de operaciones"></label>
+    <label>Teléfono (opcional) <input id="user-phone" maxlength="30" type="tel"></label>
+  </div>
+  <label id="user-active-wrap" class="active-toggle" hidden><input id="user-active" type="checkbox"> Cuenta habilitada</label>
+  <p id="user-form-error" class="dialog-error" role="alert" hidden></p>
+  <footer class="dialog-actions"><button id="user-cancel" type="button" class="master-secondary">Cancelar</button><button type="submit" class="master-primary" id="user-save">Guardar</button></footer>
+ </form>
+</dialog>
+<dialog id="user-invite-dialog" class="record-dialog" aria-labelledby="user-invite-title">
+ <div class="user-invite-inner">
+  <header class="dialog-head"><div><span class="master-eyebrow">ACCESO SEGURO</span><h2 id="user-invite-title">Invitación creada</h2></div><button id="user-invite-x" class="dialog-x" type="button" aria-label="Cerrar">×</button></header>
+  <p>Comparte este enlace únicamente con la persona autorizada. Es válido durante 48 horas y solo puede utilizarse una vez.</p>
+  <label class="user-invite-label">Enlace de activación <input id="user-invite-link" readonly autocomplete="off" spellcheck="false"></label>
+  <p id="user-copy-feedback" role="status" aria-live="polite"></p>
+  <footer class="dialog-actions"><button id="user-invite-close" class="master-secondary" type="button">Cerrar</button><button id="user-copy" class="master-primary" type="button">Copiar enlace</button></footer>
+ </div>
 </dialog>
 </body>
 </html>
