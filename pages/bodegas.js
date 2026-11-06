@@ -137,4 +137,6 @@
   $('warehouse-form').addEventListener('submit',save);
   $('warehouse-close').addEventListener('click',()=>$('warehouse-dialog').close());
   $('warehouse-cancel').addEventListener('click',()=>$('warehouse-dialog').close());
+  // Precargar el total de bodegas, aunque esta pestaña no esté seleccionada.
+  void refresh();
 })();

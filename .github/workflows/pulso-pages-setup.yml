@@ -66,6 +66,9 @@ jobs:
           grep -q 'id="tab-catalogo"' pages/maestras.html
           grep -q 'id="tab-usuarios"' pages/maestras.html
           grep -q 'id="tab-bodegas"' pages/maestras.html
+          test "$(grep -o 'src="/usuarios.js"' pages/maestras.html | wc -l)" -eq 1
+          grep -q 'void reload();' pages/usuarios.js
+          grep -q 'void refresh();' pages/bodegas.js
           grep -q 'id="warehouse-table"' pages/maestras.html
           grep -q 'id="warehouse-dialog"' pages/maestras.html
           grep -q 'BODEGAS' pages/maestras-import.js

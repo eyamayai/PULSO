@@ -195,4 +195,6 @@
   $('user-invite-dialog').addEventListener('close',()=>{
     $('user-invite-link').value='';setText('user-copy-feedback','');
   });
+  // Igual que Personal y Catálogo: contador cargado al entrar en Maestras.
+  void reload();
 })();
