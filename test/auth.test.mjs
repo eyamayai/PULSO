@@ -395,3 +395,21 @@ test('Restablecimiento de contraseña revoca la anterior y las sesiones existent
   assert.equal((await signin(x,auxiliar.email,securePassword)).status,401);
   assert.equal((await signin(x,auxiliar.email,'ClaveNuevaSegura2026!')).status,200);
 });
+
+
+test('Desactivar una cuenta invalida invitaciones de restablecimiento pendientes',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await createAccount(x,cookie);
+  assert.equal((await activation(x,created.link.split('#')[1])).status,200);
+  const newInvite=await worker.fetch(x.req('/api/usuarios/invitaciones',{
+    method:'POST',headers:{cookie},data:{id:created.id}
+  }),x.env);
+  assert.equal(newInvite.status,201);
+  const token=(await newInvite.json()).link.split('#')[1];
+  const disable=await worker.fetch(x.req('/api/usuarios',{
+    method:'PATCH',headers:{cookie},data:{id:created.id,active:false}
+  }),x.env);
+  assert.equal(disable.status,200);
+  assert.equal((await activation(x,token,auxiliar.email,'OtraClaveSegura2026!')).status,400);
+  assert.equal(x.database.prepare('SELECT active FROM app_users WHERE id=?').get(created.id).active,0);
+});

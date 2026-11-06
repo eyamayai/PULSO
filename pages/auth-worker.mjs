@@ -527,6 +527,10 @@ async function userManagement(request,env,user,path){
   ];
   if(v.role!==current.role||active!==current.active)
     stmts.push(env.DB.prepare('UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL').bind(now,current.id));
+  // Una cuenta desactivada o con perfil modificado no conservará enlaces anteriores.
+  if((active===0&&current.active!==0)||v.role!==current.role)
+    stmts.push(env.DB.prepare('UPDATE app_user_invitations SET revoked_at=? WHERE user_id=? AND used_at IS NULL AND revoked_at IS NULL')
+      .bind(now,current.id));
   try{await env.DB.batch(stmts);}
   catch(e){
     if(String(e).includes('ULTIMO_ADMINISTRADOR'))return userError('ULTIMO_ADMINISTRADOR',409);
@@ -566,7 +570,9 @@ async function acceptInvitation(request,env){
     'JOIN app_users u ON u.id=i.user_id '+
     'WHERE i.token_hash=? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?'
   ).bind(tokenHash,now).first();
-  if(!invitation||invitation.email.toLowerCase()!==email)
+  if(!invitation||invitation.email.toLowerCase()!==email ||
+     (invitation.purpose==='RESTABLECER'&&invitation.active!==1) ||
+     (invitation.purpose==='ACTIVAR'&&invitation.active===1))
     return userError('INVITACION_NO_VALIDA',400);
   const salt=hex(randomBytes(16));
   const derived=await passwordHash(data.password,salt);
