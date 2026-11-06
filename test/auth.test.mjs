@@ -8,9 +8,10 @@ const sql = fs.readFileSync(new URL('../cloudflare/migrations/0002_autenticacion
 const sql3 = fs.readFileSync(new URL('../cloudflare/migrations/0003_auth_passwords_compat.sql', import.meta.url), 'utf8');
 const sql4=fs.readFileSync(new URL('../cloudflare/migrations/0004_maestras_personal_y_sap.sql',import.meta.url),'utf8');
 const sql5=fs.readFileSync(new URL('../cloudflare/migrations/0005_usuarios_permisos.sql',import.meta.url),'utf8');
+const sql6=fs.readFileSync(new URL('../cloudflare/migrations/0006_vinculo_personal_usuarios.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup() {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5);
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6);
   const wrap = stmt => {
     let args=[];
     return {
@@ -412,4 +413,111 @@ test('Desactivar una cuenta invalida invitaciones de restablecimiento pendientes
   assert.equal(disable.status,200);
   assert.equal((await activation(x,token,auxiliar.email,'OtraClaveSegura2026!')).status,400);
   assert.equal(x.database.prepare('SELECT active FROM app_users WHERE id=?').get(created.id).active,0);
+});
+
+
+function createPersonnelRecords(x,count=46){
+ const adminId=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ const ins=x.database.prepare("INSERT INTO master_personnel "+
+  "(id,document_number,full_name,position,department,zone,city_base,supervisor_id,email,phone,is_active,created_by,updated_by) "+
+  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+ const bosses=[];
+ for(let i=0;i<count;i++){
+   const boss=i<3;
+   const id=randomUUID(),doc=String(10000000+i);
+   ins.run(id,doc,'Colaborador '+i,boss?'SUPERVISOR':'TECNICO',
+     'CESAR',boss?'Zona Cesar':'',boss?'':'Valledupar',
+     boss?null:bosses[i%3],
+     'colaborador'+i+'@example.com','3001112233',1,adminId,adminId);
+   if(boss)bosses.push(id);
+ }
+ return x.database.prepare('SELECT id,position FROM master_personnel ORDER BY document_number').all();
+}
+async function associate(x,cookie,assignments,mode='validate'){
+  return worker.fetch(x.req('/api/usuarios/vincular-personal',{
+    method:'POST',data:{mode,assignments},headers:{cookie}
+  }),x.env);
+}
+test('Vinculación selectiva: sólo el personal autorizado obtiene usuario y un enlace individual',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const people=createPersonnelRecords(x,4);
+ const chosen=[{personnel_id:people[0].id,role:'ADMIN'}];
+ let response=await associate(x,cookie,chosen);
+ assert.equal(response.status,200);assert.equal((await response.json()).valid,true);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,1);
+ response=await associate(x,cookie,chosen,'commit');
+ assert.equal(response.status,201);
+ const body=await response.json();
+ assert.equal(body.created,1);
+ assert.match(body.invitations[0].link,/\/activar#[A-Za-z0-9_-]{43}$/);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,4);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_personnel_user_links').get().n,1);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM auth_passwords').get().n,1);
+ const list=await worker.fetch(x.req('/api/maestras/personal',{headers:{cookie}}),x.env);
+ const items=(await list.json()).items;
+ assert.equal(items.find(p=>p.id===people[0].id).access_role,'ADMIN');
+ assert.equal(items.find(p=>p.id===people[1].id).access_user_id,null);
+ response=await associate(x,cookie,chosen,'commit');
+ assert.equal(response.status,422);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,2);
+});
+test('Vinculación masiva de 46 colaboradores con perfiles según cargo: transacción completa',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const people=createPersonnelRecords(x,46);
+ const assignments=people.map(p=>({personnel_id:p.id,role:p.position}));
+ let r=await associate(x,cookie,assignments,'validate');
+ assert.equal(r.status,200);
+ assert.equal((await r.json()).valid,true);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_personnel_user_links').get().n,0);
+ r=await associate(x,cookie,assignments,'commit');
+ assert.equal(r.status,201);
+ const body=await r.json();
+ assert.equal(body.invitations.length,46);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,46);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,47);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_user_details').get().n,46);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_personnel_user_links').get().n,46);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_user_invitations').get().n,46);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM auth_passwords').get().n,1);
+ assert.equal(x.database.prepare("SELECT COUNT(*) n FROM app_users WHERE role='SUPERVISOR'").get().n,3);
+ assert.equal(x.database.prepare("SELECT COUNT(*) n FROM app_users WHERE role='TECNICO'").get().n,43);
+ const first=body.invitations[0];
+ const activate=await worker.fetch(x.req('/api/auth/activar',{
+  method:'POST',data:{token:first.link.split('#')[1],email:first.email,password:'ClaveSeguraNuevo2026!'}
+ }),x.env);
+ assert.equal(activate.status,200);
+ assert.equal((await worker.fetch(x.req('/api/auth/login',{
+  method:'POST',data:{email:first.email,password:'ClaveSeguraNuevo2026!'}
+ }),x.env)).status,200);
+});
+test('Bloqueo integral ante correos inválidos y cuentas preexistentes: nada se importa',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const people=createPersonnelRecords(x,6);
+ x.database.prepare("UPDATE master_personnel SET email='' WHERE id=?").run(people[2].id);
+ const all=people.map(p=>({personnel_id:p.id,role:'ADMIN'}));
+ let r=await associate(x,cookie,all,'commit');
+ assert.equal(r.status,422);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,1);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_personnel_user_links').get().n,0);
+ x.database.prepare("UPDATE master_personnel SET email='admin@example.com' WHERE id=?").run(people[2].id);
+ r=await associate(x,cookie,all,'validate');
+ const body=await r.json();
+ assert.equal(body.valid,false);
+ assert.ok(body.errors.some(e=>e.error==='CORREO_YA_TIENE_USUARIO'));
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_user_invitations').get().n,0);
+});
+test('Vinculación: restringida a administradores, sin autenticación ni origen externo',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const people=createPersonnelRecords(x,1);
+ const selections=[{personnel_id:people[0].id,role:'ADMIN'}];
+ assert.equal((await associate(x,'',selections,'commit')).status,401);
+ const other=await worker.fetch(x.req('/api/usuarios/vincular-personal',{
+  method:'POST',origin:'https://intruso.example',data:{mode:'commit',assignments:selections},headers:{cookie}
+ }),x.env);
+ assert.equal(other.status,403);
+ assert.equal((await associate(x,cookie,[...selections,...selections],'commit')).status,400);
+ const extra=Array.from({length:81},()=>selections[0]);
+ assert.equal((await associate(x,cookie,extra,'commit')).status,400);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,1);
 });

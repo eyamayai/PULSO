@@ -68,10 +68,19 @@
     const personal=tab==='personal';
     head.replaceChildren();body.replaceChildren();
     const titles=personal
-      ?['Identificación','Nombre','Cargo','Departamento','Zona / ciudad','Supervisor','Estado','Acciones']
+      ?['Seleccionar','Identificación','Nombre','Cargo','Departamento','Zona / ciudad','Supervisor','Acceso PULSO','Estado','Acciones']
       :['Código SAP','Descripción','Tipo','Perfil','Unidad','Familia','Estado','Acciones'];
     const tr=document.createElement('tr');
-    for(const h of titles){const th=document.createElement('th');th.textContent=h;tr.append(th);}
+    for(const h of titles){
+      const th=document.createElement('th');
+      if(h==='Seleccionar'&&personal){
+        const check=document.createElement('input');
+        check.type='checkbox';check.id='personnel-select-all';
+        check.setAttribute('aria-label','Seleccionar todos los colaboradores visibles con acceso disponible');
+        th.append(check);
+      }else th.textContent=h;
+      tr.append(th);
+    }
     head.append(tr);
     const q=normalize($('master-filter').value.trim());
     const filter=$('type-filter').value;
@@ -80,6 +89,15 @@
     for(const item of rows){
       const row=document.createElement('tr');
       if(personal){
+        const selectionCell=document.createElement('td');
+        const choice=document.createElement('input');
+        choice.type='checkbox';
+        choice.dataset.personSelect=item.id;
+        choice.title=item.access_user_id?'Ya tiene acceso':!item.is_active?'El registro está inactivo':!item.email?'Registra primero su correo':'Seleccionar para habilitar acceso';
+        choice.setAttribute('aria-label','Seleccionar acceso para '+item.full_name);
+        choice.disabled=Boolean(item.access_user_id)||item.is_active!==1||!item.email;
+        selectionCell.append(choice);
+        row.append(selectionCell);
         cell(row,item.document_number);
         cell(row,item.full_name,item.email);
         cell(row,pill(item.position==='TECNICO'?'Técnico':'Supervisor',item.position==='TECNICO'?'tec':''));
@@ -94,6 +112,12 @@
         cell(row,item.unit);
         cell(row,item.family||'—');
       }
+      if(personal){
+        const status=item.access_user_id
+          ? (item.access_status==='CONFIGURADA'?'Acceso activo':item.access_status==='INVITADO'?'Invitación pendiente':'Cuenta vinculada')
+          : 'Sin acceso';
+        cell(row,pill(status,item.access_user_id?'':'inactive'));
+      }
       cell(row,pill(item.is_active===1?'Activo':'Inactivo',item.is_active!==1?'inactive':''));
       const controls=document.createElement('div');controls.className='row-actions';
       controls.append(actionButton('Editar',()=>openEditor(item)));
@@ -103,6 +127,7 @@
     }
     empty.hidden=rows.length>0;
     setText('visible-count',rows.length+' registro'+(rows.length===1?'':'s'));
+    if(personal)window.dispatchEvent(new CustomEvent('pulso:personnel-rendered',{detail:{items:lists.personal}}));
   }
   function setTab(next){
     tab=next;
@@ -116,6 +141,7 @@
     $('users-view').hidden=!users;
     $('new-record').hidden=users;
     $('bulk-open').hidden=users;
+    $('personnel-bulk-open').hidden=next!=='personal';
     $('user-new').hidden=!users;
     if(!users){
       const typeFilter=$('type-filter');
@@ -180,6 +206,7 @@
     }
     dialogError('');
     $('record-dialog').showModal();
+    window.dispatchEvent(new CustomEvent('pulso:personnel-editor',{detail:{personnel:tab==='personal'?item:null}}));
   }
   const val=id=>$(id).value.trim();
   async function save(event){
@@ -226,6 +253,10 @@
   $('dialog-cancel').addEventListener('click',()=>$('record-dialog').close());
   $('record-form').addEventListener('submit',save);
   $('record-dialog').addEventListener('close',()=>dialogError(''));
+  window.addEventListener('pulso:personal-access-created',async()=>{
+    await refresh();
+    message('Accesos creados. Las cuentas ya aparecen en Usuarios y permisos.');
+  });
   window.addEventListener('pulso:maestras-imported',async e=>{
     setTab(e.detail.kind==='CATALOGO'?'catalogo':'personal');
     await refresh();

@@ -14,6 +14,7 @@
 <script src="/maestras.js" defer></script>
 <script src="/maestras-import.js" defer></script>
 <script src="/usuarios.js" defer></script>
+<script src="/personal-access.js" defer></script>
 <script src="/usuarios.js" defer></script>
 </head>
 <body>
@@ -85,7 +86,8 @@
      <button type="button" role="tab" class="master-tab" id="tab-catalogo" aria-selected="false" data-tab="catalogo">Equipos y materiales <span id="catalogo-count">0</span></button>
      <button type="button" role="tab" class="master-tab" id="tab-usuarios" aria-selected="false" data-tab="usuarios">Usuarios y permisos <span id="usuarios-count">0</span></button>
     </div>
-    <div class="master-top-actions"><button type="button" id="bulk-open" class="master-secondary">Carga masiva Excel</button>
+    <div class="master-top-actions"><button type="button" id="personnel-bulk-open" class="master-secondary" hidden>Habilitar accesos <span id="personnel-selection-count">0</span></button>
+    <button type="button" id="bulk-open" class="master-secondary">Carga masiva Excel</button>
     <button type="button" id="new-record" class="master-primary"><span aria-hidden="true">＋</span> Nuevo registro</button>
     <button type="button" id="user-new" class="master-primary" hidden>＋ Nuevo usuario</button></div>
    </div>
@@ -138,6 +140,19 @@
     <label>Teléfono (opcional) <input id="person-phone" type="tel" maxlength="30" autocomplete="off"></label>
    </div>
   </fieldset>
+  <section class="personnel-access-panel" id="personnel-access-panel" hidden aria-labelledby="personnel-access-title">
+    <div class="personnel-access-heading"><h3 id="personnel-access-title">Acceso a PULSO</h3><span id="personnel-access-state">Sin acceso</span></div>
+    <p id="personnel-access-description">Habilita una cuenta sin duplicar los datos del colaborador.</p>
+    <div id="personnel-access-create">
+      <label class="personnel-access-toggle"><input id="personnel-access-enabled" type="checkbox"> Permitir acceso a este colaborador</label>
+      <label id="personnel-access-role-wrap" hidden>Perfil de acceso
+        <select id="personnel-access-role"><option value="TECNICO">Técnico</option><option value="SUPERVISOR">Supervisor</option><option value="AUDITOR">Auditor / Consulta</option><option value="ADMIN">Administrador</option></select>
+      </label>
+      <button id="personnel-access-submit" class="master-primary" type="button" disabled>Crear acceso e invitación</button>
+    </div>
+    <div id="personnel-access-existing" hidden><button type="button" class="master-secondary" id="personnel-open-users">Ver en Usuarios y permisos</button></div>
+    <p id="personnel-access-feedback" class="personnel-access-feedback" role="status" aria-live="polite"></p>
+  </section>
   <fieldset class="fields" id="catalog-fields" disabled hidden>
    <div class="field-grid">
     <label>Código SAP <input id="sap-code" maxlength="50" required autocomplete="off" placeholder="Código SAP"></label>
@@ -214,6 +229,26 @@
   <label class="user-invite-label">Enlace de activación <input id="user-invite-link" readonly autocomplete="off" spellcheck="false"></label>
   <p id="user-copy-feedback" role="status" aria-live="polite"></p>
   <footer class="dialog-actions"><button id="user-invite-close" class="master-secondary" type="button">Cerrar</button><button id="user-copy" class="master-primary" type="button">Copiar enlace</button></footer>
+ </div>
+</dialog>
+<dialog id="personnel-bulk-dialog" class="record-dialog personnel-bulk-dialog" aria-labelledby="personnel-bulk-title">
+  <div class="user-invite-inner">
+    <header class="dialog-head"><div><span class="master-eyebrow">HABILITACIÓN CONTROLADA</span><h2 id="personnel-bulk-title">Accesos de Personal</h2></div><button class="dialog-x" id="personnel-bulk-x" type="button" aria-label="Cerrar">×</button></header>
+    <p class="personnel-bulk-intro"><strong id="personnel-bulk-total">0</strong> colaboradores seleccionados. Se crearán cuentas pendientes, sin contraseña. Solo las personas que activen su invitación podrán entrar.</p>
+    <label class="personnel-bulk-role">Perfil de acceso
+      <select id="personnel-bulk-role"><option value="CARGO">Según cargo: Técnico / Supervisor</option><option value="TECNICO">Técnico</option><option value="SUPERVISOR">Supervisor</option><option value="AUDITOR">Auditor / Consulta</option><option value="ADMIN">Administrador</option></select>
+    </label>
+    <div id="personnel-bulk-preview" class="personnel-bulk-preview"></div>
+    <div class="personnel-bulk-errors" id="personnel-bulk-errors" role="status" aria-live="polite"></div>
+    <footer class="dialog-actions"><button id="personnel-bulk-cancel" type="button" class="master-secondary">Cancelar</button><button id="personnel-bulk-confirm" type="button" class="master-primary">Validar selección</button></footer>
+  </div>
+</dialog>
+<dialog id="personnel-invites-dialog" class="record-dialog personnel-invites-dialog" aria-labelledby="personnel-invites-title">
+ <div class="user-invite-inner">
+   <header class="dialog-head"><div><span class="master-eyebrow">INVITACIONES PRIVADAS</span><h2 id="personnel-invites-title">Accesos creados</h2></div><button id="personnel-invites-x" class="dialog-x" type="button" aria-label="Cerrar">×</button></header>
+   <p>Las cuentas quedaron pendientes de activación. Cada enlace es personal, tiene un solo uso y vence en 48 horas. Comparte cada uno por un canal privado.</p>
+   <div id="personnel-invites-list" class="personnel-invites-list"></div>
+   <footer class="dialog-actions"><button id="personnel-invites-export" type="button" class="master-secondary">Descargar CSV privado</button><button id="personnel-invites-close" type="button" class="master-primary">Cerrar</button></footer>
  </div>
 </dialog>
 </body>

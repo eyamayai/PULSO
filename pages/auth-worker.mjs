@@ -197,8 +197,20 @@ async function masterHandler(request,env,user,path){
     const result=people
       ? await env.DB.prepare(`SELECT p.id,p.document_number,p.full_name,p.position,p.department,p.zone,p.city_base,
           p.supervisor_id,p.email,p.phone,p.is_active,p.created_at,p.updated_at,
-          s.full_name AS supervisor_name FROM master_personnel p LEFT JOIN master_personnel s ON s.id=p.supervisor_id
-          ORDER BY p.position DESC,p.full_name COLLATE NOCASE LIMIT 500`).all()
+          s.full_name AS supervisor_name,l.user_id AS access_user_id,
+          u.role AS access_role,u.active AS access_active,
+          CASE WHEN l.user_id IS NULL THEN 'SIN_ACCESO'
+               WHEN pass.user_id IS NOT NULL THEN 'CONFIGURADA'
+               WHEN EXISTS(SELECT 1 FROM app_user_invitations inv
+                 WHERE inv.user_id=l.user_id AND inv.used_at IS NULL
+                   AND inv.revoked_at IS NULL AND inv.expires_at>?) THEN 'INVITADO'
+               ELSE 'SIN_CLAVE' END AS access_status
+          FROM master_personnel p
+          LEFT JOIN master_personnel s ON s.id=p.supervisor_id
+          LEFT JOIN app_personnel_user_links l ON l.personnel_id=p.id
+          LEFT JOIN app_users u ON u.id=l.user_id
+          LEFT JOIN auth_passwords pass ON pass.user_id=l.user_id
+          ORDER BY p.position DESC,p.full_name COLLATE NOCASE LIMIT 500`).bind(Math.floor(Date.now()/1000)).all()
       : await env.DB.prepare(`SELECT id,sap_code,description,item_type,serial_profile,unit,family,is_active,created_at,updated_at
           FROM master_sap_catalog ORDER BY description COLLATE NOCASE LIMIT 500`).all();
     return json({ok:true,items:result.results||[]});
@@ -439,12 +451,13 @@ async function userManagement(request,env,user,path){
   if(request.method==='GET'&&path==='/api/usuarios'){
     const result=await env.DB.prepare(
       "SELECT u.id,u.email,u.display_name,u.role,u.active,u.created_at,"+
-      "d.document_number,d.job_title,d.phone,"+
+      "d.document_number,d.job_title,d.phone,l.personnel_id,"+
       "CASE WHEN p.user_id IS NOT NULL THEN 'CONFIGURADA' WHEN EXISTS ("+
       "SELECT 1 FROM app_user_invitations i WHERE i.user_id=u.id AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?) "+
       "THEN 'INVITADO' ELSE 'SIN_CLAVE' END AS credential_status "+
       "FROM app_users u LEFT JOIN app_user_details d ON d.user_id=u.id "+
       "LEFT JOIN auth_passwords p ON p.user_id=u.id "+
+      "LEFT JOIN app_personnel_user_links l ON l.user_id=u.id "+
       "ORDER BY u.created_at,u.display_name COLLATE NOCASE LIMIT 500"
     ).bind(Math.floor(Date.now()/1000)).all();
     return json({ok:true,items:result.results||[],current_user_id:user.id,roles:[...USER_ROLES]});
@@ -603,6 +616,135 @@ async function acceptInvitation(request,env){
   return json({ok:true,redirect:'/main'});
 }
 
+
+/* Vinculación opcional: datos de Personal se reutilizan, la cuenta se crea sin contraseña.
+ * Se permite acceso solo tras invitación explícita, y se rechaza cualquier duplicado.
+ * La validación es preliminar; commit vuelve a comprobar y usa una transacción D1.
+ */
+async function linkPersonnelToUsers(request,env,user) {
+  if(!user)return userError('NO_AUTENTICADO',401);
+  if(user.role!=='ADMIN')return userError('SIN_PERMISOS',403);
+  if(request.method!=='POST')return userError('METODO_NO_PERMITIDO',405);
+  const parsed=await adminJson(request,18000);
+  if(parsed.error)return userError(parsed.error,parsed.status);
+  const data=parsed.data;
+  if(!fieldsOf(data,['mode','assignments'])||
+     !['validate','commit'].includes(data.mode)||
+     !Array.isArray(data.assignments)||
+     data.assignments.length<1||data.assignments.length>80)return userError('DATOS_INVALIDOS');
+  const selection=new Map();
+  for(const entry of data.assignments){
+    if(!fieldsOf(entry,['personnel_id','role'])||
+       typeof entry.personnel_id!=='string'||
+       !/^[a-f0-9-]{36}$/i.test(entry.personnel_id)||
+       typeof entry.role!=='string'||!USER_ROLES.has(entry.role)||
+       selection.has(entry.personnel_id))return userError('SELECCION_INVALIDA');
+    selection.set(entry.personnel_id,entry.role);
+  }
+  const ids=[...selection.keys()];
+  const found=await env.DB.prepare(
+    "SELECT p.id,p.document_number,p.full_name,p.position,p.email,p.phone,p.is_active,"+
+    "l.user_id FROM master_personnel p "+
+    "LEFT JOIN app_personnel_user_links l ON l.personnel_id=p.id "+
+    "WHERE p.id IN (SELECT value FROM json_each(?))"
+  ).bind(JSON.stringify(ids)).all();
+  const people=new Map((found.results||[]).map(x=>[x.id,x]));
+  const issues=[],seenEmail=new Map();
+  const eligible=[];
+  for(const id of ids){
+    const person=people.get(id);
+    if(!person){issues.push({personnel_id:id,name:'Registro no encontrado',error:'PERSONAL_NO_EXISTE'});continue;}
+    const error=person.user_id?'YA_TIENE_ACCESO':person.is_active!==1?'PERSONAL_INACTIVO':null;
+    const email=userEmail(person.email);
+    const invalidEmail=!email?'CORREO_REQUERIDO':null;
+    const doc=String(person.document_number||'').trim().toUpperCase();
+    const invalidDocument=!/^[A-Z0-9-]{4,25}$/.test(doc)?'IDENTIFICACION_INVALIDA':null;
+    const duplicateEmail=email&&seenEmail.has(email)?'CORREO_REPETIDO_EN_SELECCION':null;
+    if(error||invalidEmail||invalidDocument||duplicateEmail){
+      issues.push({personnel_id:id,name:person.full_name,error:error||invalidEmail||invalidDocument||duplicateEmail});
+    }else {
+      seenEmail.set(email,id);
+      eligible.push({...person,email,document_number:doc,role:selection.get(id)});
+    }
+  }
+  if(eligible.length){
+    const emails=JSON.stringify(eligible.map(p=>p.email));
+    const docs=JSON.stringify(eligible.map(p=>p.document_number));
+    const conflicts=await env.DB.prepare(
+      "SELECT u.email,d.document_number FROM app_users u "+
+      "LEFT JOIN app_user_details d ON d.user_id=u.id "+
+      "WHERE u.email IN (SELECT value FROM json_each(?)) "+
+      "OR d.document_number IN (SELECT value FROM json_each(?))"
+    ).bind(emails,docs).all();
+    const existingEmails=new Set((conflicts.results||[]).map(c=>String(c.email).toLowerCase()));
+    const existingDocs=new Set((conflicts.results||[]).map(c=>String(c.document_number||'').toUpperCase()));
+    for(const p of eligible){
+      if(existingEmails.has(p.email)||existingDocs.has(p.document_number))
+        issues.push({personnel_id:p.id,name:p.full_name,error:existingEmails.has(p.email)?'CORREO_YA_TIENE_USUARIO':'DOCUMENTO_YA_TIENE_USUARIO'});
+    }
+  }
+  if(issues.length){
+    if(data.mode==='validate')return json({ok:true,valid:false,total:ids.length,errors:issues});
+    return json({ok:false,error:'VINCULACION_CON_ERRORES',total:ids.length,errors:issues},422);
+  }
+  if(data.mode==='validate')return json({ok:true,valid:true,total:ids.length,errors:[]});
+  const now=Math.floor(Date.now()/1000);
+  const entries=[];
+  for(const p of eligible){
+    const token=toBase64url(randomBytes(32));
+    entries.push({
+      user_id:crypto.randomUUID(),personnel_id:p.id,role:p.role,
+      email:p.email,display_name:p.full_name,document_number:p.document_number,
+      job_title:p.position==='SUPERVISOR'?'Supervisor':'Técnico',
+      phone:p.phone||'',token_hash:await hash(token),
+      audit_create:crypto.randomUUID(),audit_invite:crypto.randomUUID(),
+      link:invitationLink(request,token)
+    });
+  }
+  const input=JSON.stringify(entries);
+  const extracted=key=>"json_extract(value,'$."+key+"')";
+  const fromJson=' FROM json_each(?)';
+  const stmts=[
+    env.DB.prepare(
+      "INSERT INTO app_users(id,email,display_name,password_hash,password_salt,password_kdf,role,active) "+
+      "SELECT "+['user_id','email','display_name'].map(extracted).join(',')+
+      ",'','','pbkdf2-sha512-220000',"+extracted('role')+",0"+fromJson
+    ).bind(input),
+    env.DB.prepare(
+      "INSERT INTO app_user_details(user_id,document_number,job_title,phone) "+
+      "SELECT "+['user_id','document_number','job_title','phone'].map(extracted).join(',')+fromJson
+    ).bind(input),
+    env.DB.prepare(
+      "INSERT INTO app_personnel_user_links(personnel_id,user_id,linked_by) "+
+      "SELECT "+extracted('personnel_id')+","+extracted('user_id')+",?"+fromJson
+    ).bind(user.id,input),
+    env.DB.prepare(
+      "INSERT INTO app_user_invitations(token_hash,user_id,purpose,created_by,created_at,expires_at) "+
+      "SELECT "+extracted('token_hash')+","+extracted('user_id')+",'ACTIVAR',?,?,?"+fromJson
+    ).bind(user.id,now,now+INVITATION_SECONDS,input),
+    env.DB.prepare(
+      "INSERT INTO app_user_audit(id,user_id,actor_id,action,changed_fields) "+
+      "SELECT "+extracted('audit_create')+","+extracted('user_id')+",?,'CREAR','[\"personal\"]'"+fromJson
+    ).bind(user.id,input),
+    env.DB.prepare(
+      "INSERT INTO app_user_audit(id,user_id,actor_id,action,changed_fields) "+
+      "SELECT "+extracted('audit_invite')+","+extracted('user_id')+",?,'INVITAR','[\"invitacion\"]'"+fromJson
+    ).bind(user.id,input)
+  ];
+  try {await env.DB.batch(stmts);}
+  catch(err) {
+    if(/UNIQUE|constraint|FOREIGN KEY/i.test(String(err)))
+      return userError('CONFLICTO_VINCULACION',409);
+    throw err;
+  }
+  return json({
+    ok:true,created:entries.length,
+    invitations:entries.map(e=>({
+      personnel_id:e.personnel_id,email:e.email,name:e.display_name,role:e.role,link:e.link
+    }))
+  },201);
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
@@ -614,6 +756,8 @@ export default {
           return json({ok: true, service: 'pulso-auth', ready: true});
         }
         if (pathname === '/api/auth/activar') return await acceptInvitation(request,env);
+        if (pathname==='/api/usuarios/vincular-personal')
+          return await linkPersonnelToUsers(request,env,await currentUser(request,env));
         if (pathname==='/api/usuarios'||pathname==='/api/usuarios/invitaciones')
           return await userManagement(request,env,await currentUser(request,env),pathname);
         if (pathname==='/activar'||pathname==='/activar.html') {

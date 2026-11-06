@@ -25,6 +25,16 @@ for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const data=await result.json();
   if(!data.ok||!Array.isArray(data.items))throw new Error('Respuesta inválida de '+endpoint);
 }
+const linkProbe=await fetch(origin+'/api/usuarios/vincular-personal',{
+  method:'POST',redirect:'manual',
+  headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
+  body:JSON.stringify({mode:'validate',assignments:[{personnel_id:'00000000-0000-4000-8000-000000000000',role:'TECNICO'}]})
+});
+const probe=await linkProbe.json().catch(()=>({}));
+if(linkProbe.status!==200||probe.ok!==true||probe.valid!==false||!probe.errors?.length)
+  throw new Error('La validación de vínculos no rechazó el Personal inexistente');
+const unauthLink=await fetch(origin+'/api/usuarios/vincular-personal',{redirect:'manual'});
+if(unauthLink.status!==401)throw new Error('No se protegió la vinculación sin sesión');
 const userResponse=await fetch(origin+'/api/usuarios',{redirect:'manual',headers:{Cookie:cookie}});
 if(userResponse.status!==200)throw new Error('El administrador no puede consultar Usuarios y Permisos; HTTP '+userResponse.status);
 const userData=await userResponse.json();
