@@ -145,3 +145,19 @@
 .personnel-invite-item button{border:1px solid #b5d9c6;border-radius:9px;padding:8px 10px;background:#e8f7ef;color:#08785c;white-space:nowrap;font-size:11px;font-weight:800}
 #personnel-bulk-confirm:disabled{opacity:.5;cursor:wait}
 @media(max-width:600px){.personnel-access-heading{align-items:flex-start}.personnel-invite-item{align-items:flex-start}.personnel-bulk-dialog .dialog-actions{flex-wrap:wrap}}
+
+/* Cuarta pestaña: Bodegas y Aliados, misma composición visual de Maestras. */
+#warehouses-view[hidden],#warehouse-new[hidden]{display:none!important}
+.warehouses-view{min-height:300px}
+.warehouses-view .master-table{min-width:790px}
+.warehouses-view .user-view-toolbar{gap:11px}
+.warehouse-dialog{width:min(94vw,640px)}
+.warehouse-badge{display:inline-block;padding:6px 9px;border-radius:20px;font-size:10px;font-weight:800;background:#e3f5ec;color:#0d7b5b}
+.warehouse-badge.ally{background:#fff1df;color:#a66a19}
+.warehouse-badge.inactive{background:#f5eeee;color:#99545b}
+.warehouse-actions{display:flex;gap:7px;align-items:center}
+.warehouse-actions button{border:1px solid #d5e7de;background:#f7fbf8;border-radius:8px;color:#116f59;padding:8px;font-weight:800;font-size:11px}
+.warehouse-actions button:hover{background:#e0f4e9}
+.warehouse-actions button.deactivate{color:#976043}
+#warehouse-error[hidden]{display:none}
+@media(max-width:850px){.warehouses-view .user-view-toolbar{flex-wrap:wrap}}

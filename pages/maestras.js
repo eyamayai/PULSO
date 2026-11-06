@@ -63,7 +63,7 @@
     const b=document.createElement('button');b.type='button';b.textContent=text;b.className=cls;b.addEventListener('click',callback);return b;
   }
   function render(){
-    if(tab==='usuarios')return;
+    if(tab==='usuarios'||tab==='bodegas')return;
     const head=$('master-table-head'),body=$('master-table-body'),empty=$('master-empty');
     const personal=tab==='personal';
     head.replaceChildren();body.replaceChildren();
@@ -136,14 +136,18 @@
       b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));
     });
     const users=tab==='usuarios';
-    $('master-toolbar').hidden=users;
-    $('master-table-scroll').hidden=users;
+    const warehouses=tab==='bodegas';
+    const custom=users||warehouses;
+    $('master-toolbar').hidden=custom;
+    $('master-table-scroll').hidden=custom;
     $('users-view').hidden=!users;
-    $('new-record').hidden=users;
+    $('warehouses-view').hidden=!warehouses;
+    $('new-record').hidden=custom;
     $('bulk-open').hidden=users;
     $('personnel-bulk-open').hidden=next!=='personal';
     $('user-new').hidden=!users;
-    if(!users){
+    $('warehouse-new').hidden=!warehouses;
+    if(!custom){
       const typeFilter=$('type-filter');
       typeFilter.replaceChildren(new Option('Todos',''));
       for(const [value,label] of (tab==='personal'?[['SUPERVISOR','Supervisores'],['TECNICO','Técnicos']]:[['EQUIPO','Equipos'],['MATERIAL','Materiales']])) {
@@ -258,7 +262,7 @@
     message('Accesos creados. Las cuentas ya aparecen en Usuarios y permisos.');
   });
   window.addEventListener('pulso:maestras-imported',async e=>{
-    setTab(e.detail.kind==='CATALOGO'?'catalogo':'personal');
+    setTab(e.detail.kind==='BODEGAS'?'bodegas':e.detail.kind==='CATALOGO'?'catalogo':'personal');
     await refresh();
     message('Carga masiva completada: '+e.detail.count+' registros.');
   });

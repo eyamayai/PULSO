@@ -15,6 +15,7 @@
 <script src="/maestras-import.js" defer></script>
 <script src="/usuarios.js" defer></script>
 <script src="/personal-access.js" defer></script>
+<script src="/bodegas.js" defer></script>
 <script src="/usuarios.js" defer></script>
 </head>
 <body>
@@ -85,11 +86,13 @@
      <button type="button" role="tab" class="master-tab active" id="tab-personal" aria-selected="true" data-tab="personal">Personal <span id="personal-count">0</span></button>
      <button type="button" role="tab" class="master-tab" id="tab-catalogo" aria-selected="false" data-tab="catalogo">Equipos y materiales <span id="catalogo-count">0</span></button>
      <button type="button" role="tab" class="master-tab" id="tab-usuarios" aria-selected="false" data-tab="usuarios">Usuarios y permisos <span id="usuarios-count">0</span></button>
+     <button type="button" role="tab" class="master-tab" id="tab-bodegas" aria-selected="false" data-tab="bodegas">Bodegas y Aliados <span id="bodegas-count">0</span></button>
     </div>
     <div class="master-top-actions"><button type="button" id="personnel-bulk-open" class="master-secondary" hidden>Habilitar accesos <span id="personnel-selection-count">0</span></button>
     <button type="button" id="bulk-open" class="master-secondary">Carga masiva Excel</button>
     <button type="button" id="new-record" class="master-primary"><span aria-hidden="true">＋</span> Nuevo registro</button>
-    <button type="button" id="user-new" class="master-primary" hidden>＋ Nuevo usuario</button></div>
+    <button type="button" id="user-new" class="master-primary" hidden>＋ Nuevo usuario</button>
+    <button type="button" id="warehouse-new" class="master-primary" hidden>＋ Nueva bodega</button></div>
    </div>
    <div class="master-toolbar" id="master-toolbar">
     <div class="master-search"><svg class="ic" aria-hidden="true"><use href="#ico-search"></use></svg><input type="search" id="master-filter" placeholder="Buscar registros..." autocomplete="off" aria-label="Buscar registros"></div>
@@ -120,6 +123,26 @@
     </div>
     <p class="user-hint">Cada cuenta es independiente del personal operativo. Los accesos se activan mediante una invitación de un solo uso.</p>
   </section>
+  <section class="users-view warehouses-view" id="warehouses-view" hidden aria-label="Bodegas y Aliados">
+   <div class="user-view-toolbar">
+     <div class="master-search"><svg class="ic" aria-hidden="true"><use href="#ico-search"></use></svg>
+       <input id="warehouse-search" type="search" placeholder="Buscar centro, almacén o descripción..." autocomplete="off" aria-label="Buscar bodegas"></div>
+     <label class="master-filter-label">Administración
+       <select id="warehouse-admin-filter"><option value="">Todas</option><option value="PROPIA">Propias</option><option value="ALIADO">Aliados</option></select>
+     </label>
+     <label class="master-filter-label">Estado
+       <select id="warehouse-status-filter"><option value="">Todos</option><option value="1">Activas</option><option value="0">Inactivas</option></select>
+     </label>
+     <span class="master-total" id="warehouse-results-count">0 registros</span>
+   </div>
+   <div class="master-table-scroll users-table-scroll">
+     <table class="master-table">
+       <thead><tr><th>Centro</th><th>Almacén</th><th>Descripción</th><th>Administración</th><th>Departamento</th><th>Estado</th><th>Acciones</th></tr></thead>
+       <tbody id="warehouse-table"></tbody>
+     </table>
+     <p id="warehouse-empty" class="master-empty" hidden>No hay registros para mostrar.</p>
+   </div>
+ </section>
   </section>
  </div>
 </main>
@@ -182,6 +205,7 @@
           <option value="SUPERVISORES">Supervisores</option>
           <option value="TECNICOS">Técnicos</option>
           <option value="CATALOGO">Equipos y materiales</option>
+          <option value="BODEGAS">Bodegas y Aliados</option>
         </select>
       </label>
       <button id="bulk-template" class="master-secondary" type="button">Descargar plantilla Excel</button>
@@ -250,6 +274,30 @@
    <div id="personnel-invites-list" class="personnel-invites-list"></div>
    <footer class="dialog-actions"><button id="personnel-invites-export" type="button" class="master-secondary">Descargar CSV privado</button><button id="personnel-invites-close" type="button" class="master-primary">Cerrar</button></footer>
  </div>
+</dialog>
+<dialog class="record-dialog warehouse-dialog" id="warehouse-dialog" aria-labelledby="warehouse-form-title">
+  <form id="warehouse-form" autocomplete="off">
+    <header class="dialog-head">
+      <div><span id="warehouse-form-label" class="master-eyebrow">NUEVO REGISTRO</span><h2 id="warehouse-form-title">Bodegas y Aliados</h2></div>
+      <button class="dialog-x" id="warehouse-close" type="button" aria-label="Cerrar">×</button>
+    </header>
+    <input id="warehouse-id" type="hidden">
+    <div class="field-grid">
+      <label>Centro <input type="text" id="warehouse-centro" maxlength="30" required placeholder="Código de centro"></label>
+      <label>Almacén <input type="text" id="warehouse-almacen" maxlength="30" required placeholder="Código de almacén"></label>
+      <label class="span-2">Descripción <input type="text" id="warehouse-description" maxlength="160" required placeholder="Nombre del centro y almacén"></label>
+      <label>Administración <select id="warehouse-administration" required>
+        <option value="PROPIA">PROPIA</option><option value="ALIADO">ALIADO</option></select></label>
+      <label>Departamento <select id="warehouse-department" required>
+        <option value="">Seleccione...</option><option value="CESAR">Cesar</option><option value="LA GUAJIRA">La Guajira</option><option value="SAN ANDRES">San Andrés</option></select></label>
+    </div>
+    <label class="active-toggle"><input type="checkbox" id="warehouse-active" checked> Registro activo</label>
+    <p class="dialog-error" id="warehouse-error" role="alert" hidden></p>
+    <footer class="dialog-actions">
+      <button id="warehouse-cancel" type="button" class="master-secondary">Cancelar</button>
+      <button id="warehouse-save" type="submit" class="master-primary">Guardar</button>
+    </footer>
+  </form>
 </dialog>
 </body>
 </html>

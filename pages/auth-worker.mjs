@@ -745,6 +745,160 @@ async function linkPersonnelToUsers(request,env,user) {
   },201);
 }
 
+
+/* Maestra única: PROPIA es destino de Ingresos, ALIADO es remitente.
+ * Estas reglas operativas se aplicarán nuevamente en el endpoint de Ingresos.
+ * Dar de alta un registro nunca crea inventario ni movimientos.
+ */
+const WAREHOUSE_ADMIN = new Set(['PROPIA','ALIADO']);
+const WAREHOUSE_FIELDS = ['centro','almacen','description','administration','department','is_active'];
+function normalizeWarehouse(data) {
+  if(data.is_active!==undefined && ![true,false,0,1].includes(data.is_active))return null;
+  const record={
+    centro:trimmed(data.centro,30).toUpperCase(),
+    almacen:trimmed(data.almacen,30).toUpperCase(),
+    description:trimmed(data.description,160),
+    administration:trimmed(data.administration,15).toUpperCase(),
+    department:canonicalDepartment(data.department),
+    is_active:data.is_active===0||data.is_active===false?0:1
+  };
+  const warehouseCode=/^[A-Z0-9][A-Z0-9._/-]{0,29}$/;
+  if(!warehouseCode.test(record.centro)||!warehouseCode.test(record.almacen)||
+     record.description.length<3||record.description.length>160||
+     !WAREHOUSE_ADMIN.has(record.administration)||
+     !DEPARTMENTS.has(record.department))return null;
+  return record;
+}
+async function warehouseHandler(request,env,user) {
+  if(!user)return masterBad('NO_AUTENTICADO',401);
+  if(user.role!=='ADMIN')return masterBad('SIN_PERMISOS',403);
+  if(request.method==='GET'){
+    const qs=new URL(request.url).searchParams;
+    if([...qs.keys()].some(k=>!['administration','active'].includes(k)))return masterBad('FILTRO_NO_VALIDO');
+    const administration=qs.get('administration');
+    if(administration!==null&&!WAREHOUSE_ADMIN.has(administration))return masterBad('FILTRO_NO_VALIDO');
+    const active=qs.get('active');
+    if(active!==null&&!['1','0'].includes(active))return masterBad('FILTRO_NO_VALIDO');
+    const rows=await env.DB.prepare(
+      "SELECT id,centro,almacen,description,administration,department,is_active,created_at,updated_at "+
+      "FROM master_warehouses WHERE (? IS NULL OR administration=?) AND (? IS NULL OR is_active=?) "+
+      "ORDER BY department,description COLLATE NOCASE LIMIT 2000"
+    ).bind(administration,administration,active===null?null:Number(active),active===null?null:Number(active)).all();
+    return json({ok:true,items:rows.results||[]});
+  }
+  if(!['POST','PATCH'].includes(request.method))return masterBad('METODO_NO_PERMITIDO',405);
+  const parsed=await masterBody(request);
+  if(parsed.error)return masterBad(parsed.error,parsed.status);
+  const input=parsed.data;
+  if(!fieldsOf(input,['id',...WAREHOUSE_FIELDS]))return masterBad('CAMPOS_NO_VALIDOS');
+  const editing=request.method==='PATCH';
+  let old=null;
+  if(editing){
+    if(typeof input.id!=='string'||!/^[0-9a-f-]{36}$/i.test(input.id))
+      return masterBad('ID_INVALIDO');
+    old=await env.DB.prepare('SELECT * FROM master_warehouses WHERE id=?').bind(input.id).first();
+    if(!old)return masterBad('BODEGA_NO_ENCONTRADA',404);
+    // Centro y Almacén identifican un almacén SAP: no se cambian tras crearlo.
+    if((Object.hasOwn(input,'centro')&&trimmed(input.centro,30).toUpperCase()!==old.centro)||
+       (Object.hasOwn(input,'almacen')&&trimmed(input.almacen,30).toUpperCase()!==old.almacen))
+      return masterBad('CLAVE_INMUTABLE',409);
+  }else if(Object.hasOwn(input,'id'))return masterBad('ID_NO_PERMITIDO');
+  const value=normalizeWarehouse({...old,...input});
+  if(!value)return masterBad('DATOS_BODEGA_INVALIDOS',400);
+  const existing=await env.DB.prepare('SELECT id FROM master_warehouses WHERE centro=? AND almacen=? LIMIT 1')
+    .bind(value.centro,value.almacen).first();
+  if(existing&&(!old||existing.id!==old.id))return masterBad('CENTRO_ALMACEN_DUPLICADO',409);
+  const keys=Object.keys(value),id=old?.id||crypto.randomUUID(),actor=user.id;
+  const changed=old?keys.filter(k=>String(value[k])!==String(old[k])):keys;
+  if(old&&!changed.length)return json({ok:true,unchanged:true,id});
+  const action=old&&changed.length===1&&changed[0]==='is_active'
+    ?(value.is_active?'ACTIVAR':'DESACTIVAR'):old?'EDITAR':'CREAR';
+  const stmt=editing
+    ?env.DB.prepare('UPDATE master_warehouses SET '+keys.map(k=>k+'=?').join(',')+
+      ',updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(...keys.map(k=>value[k]),actor,id)
+    :env.DB.prepare('INSERT INTO master_warehouses(id,'+keys.join(',')+',created_by,updated_by) VALUES ('+
+      Array(keys.length+3).fill('?').join(',')+')').bind(id,...keys.map(k=>value[k]),actor,actor);
+  const audit=env.DB.prepare(
+    'INSERT INTO master_warehouse_audit(id,warehouse_id,action,actor_id,changed_fields) VALUES (?,?,?,?,?)'
+  ).bind(crypto.randomUUID(),id,action,actor,JSON.stringify(changed));
+  try{await env.DB.batch([stmt,audit]);}
+  catch(e){
+    if(/UNIQUE|constraint/i.test(String(e)))return masterBad('CENTRO_ALMACEN_DUPLICADO',409);
+    throw e;
+  }
+  return json({ok:true,id,action},editing?200:201);
+}
+async function bulkWarehouses(request,env,user){
+  if(!user)return masterBad('NO_AUTENTICADO',401);
+  if(user.role!=='ADMIN')return masterBad('SIN_PERMISOS',403);
+  if(request.method!=='POST')return masterBad('METODO_NO_PERMITIDO',405);
+  if(!sameOrigin(request))return masterBad('ORIGEN_NO_AUTORIZADO',403);
+  if(!/application\/json/i.test(request.headers.get('content-type')||''))return masterBad('TIPO_NO_VALIDO',415);
+  const raw=await request.text();
+  if(raw.length>540000)return masterBad('ARCHIVO_DEMASIADO_GRANDE',413);
+  let input;
+  try{input=JSON.parse(raw);}catch{return masterBad('DATOS_INVALIDOS');}
+  if(!input||typeof input!=='object'||Array.isArray(input)||
+     !fieldsOf(input,['mode','rows','kind'])||
+     input.kind!=='BODEGAS'||!['validate','commit'].includes(input.mode)||
+     !Array.isArray(input.rows)||!input.rows.length||input.rows.length>1000)
+     return masterBad('ARCHIVO_INVALIDO');
+  const errors=[],normalized=[],keys=new Map();
+  const addError=(row,field,message)=>{if(errors.length<40)errors.push({row,field,message});};
+  for(let i=0;i<input.rows.length;i++){
+    const r=input.rows[i],row=i+2;
+    if(!fieldsOf(r,WAREHOUSE_FIELDS)){
+      addError(row,'Columnas','El archivo tiene columnas desconocidas');continue;
+    }
+    const v=normalizeWarehouse(r);
+    if(!v){
+      if(!DEPARTMENTS.has(canonicalDepartment(r.department)))
+        addError(row,'Departamento','Solo Cesar, La Guajira o San Andrés');
+      else if(!WAREHOUSE_ADMIN.has(trimmed(r.administration,15).toUpperCase()))
+        addError(row,'Administración','Solo PROPIA o ALIADO');
+      else addError(row,'Datos','Centro, Almacén, Descripción o Estado inválidos');
+      continue;
+    }
+    const key=v.centro+'|'+v.almacen;
+    if(keys.has(key)){addError(row,'Centro + Almacén','Duplicado en este archivo; fila '+keys.get(key));continue;}
+    keys.set(key,row);
+    normalized.push({...v,id:crypto.randomUUID(),audit_id:crypto.randomUUID()});
+  }
+  if(normalized.length){
+    const existing=await env.DB.prepare(
+      "SELECT centro,almacen FROM master_warehouses "+
+      "WHERE centro || '|' || almacen IN (SELECT value FROM json_each(?))"
+    ).bind(JSON.stringify([...keys.keys()])).all();
+    for(const record of existing.results||[]){
+      const key=record.centro.toUpperCase()+'|'+record.almacen.toUpperCase();
+      addError(keys.get(key)||2,'Centro + Almacén','Esta combinación ya existe en Maestras');
+    }
+  }
+  if(errors.length){
+    if(input.mode==='validate')return json({ok:true,valid:false,total:input.rows.length,errors});
+    return json({ok:false,error:'ARCHIVO_CON_ERRORES',total:input.rows.length,errors},422);
+  }
+  if(input.mode==='validate')return json({ok:true,valid:true,total:input.rows.length,errors:[]});
+  const jsonRows=JSON.stringify(normalized);
+  const cols=['id',...WAREHOUSE_FIELDS];
+  const selects=cols.map(k=>"json_extract(value,'$."+k+"')").join(',');
+  const insert=env.DB.prepare(
+    'INSERT INTO master_warehouses('+cols.join(',')+',created_by,updated_by) '+
+    'SELECT '+selects+',?,? FROM json_each(?)'
+  ).bind(user.id,user.id,jsonRows);
+  const audit=env.DB.prepare(
+    "INSERT INTO master_warehouse_audit(id,warehouse_id,action,actor_id,changed_fields) "+
+    "SELECT json_extract(value,'$.audit_id'),json_extract(value,'$.id'),'CREAR',?,? FROM json_each(?)"
+  ).bind(user.id,JSON.stringify(WAREHOUSE_FIELDS),jsonRows);
+  try{await env.DB.batch([insert,audit]);}
+  catch(e){
+    if(/UNIQUE|constraint|FOREIGN KEY/i.test(String(e)))
+      return masterBad('CONFLICTO_IMPORTACION',409);
+    throw e;
+  }
+  return json({ok:true,inserted:normalized.length,total:normalized.length},201);
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
@@ -766,6 +920,8 @@ export default {
           page.headers.set('referrer-policy','no-referrer');
           return page;
         }
+        if (pathname==='/api/maestras/bodegas/import') return await bulkWarehouses(request,env,await currentUser(request,env));
+        if (pathname==='/api/maestras/bodegas') return await warehouseHandler(request,env,await currentUser(request,env));
         if (pathname === '/api/maestras/import') return await bulkImport(request,env,await currentUser(request,env));
         if (pathname.startsWith('/api/maestras/')) return await masterHandler(request,env,await currentUser(request,env),pathname);
         if (pathname === '/maestras' || pathname === '/maestras.html') {

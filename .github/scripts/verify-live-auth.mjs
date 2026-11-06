@@ -17,7 +17,7 @@ if(home.status!==200)throw new Error('La sesión no puede acceder a Inicio; HTTP
 const masters=await fetch(origin+'/maestras',{redirect:'manual',headers:{Cookie:cookie}});
 if(masters.status!==200)throw new Error('El administrador no puede abrir Maestras; HTTP '+masters.status);
 const mastersHtml=await masters.text();
-if(!mastersHtml.includes('id="tab-personal"')||!mastersHtml.includes('id="tab-catalogo"')||!mastersHtml.includes('id="tab-usuarios"')||!mastersHtml.includes('usuarios.js'))
+if(!mastersHtml.includes('id="tab-personal"')||!mastersHtml.includes('id="tab-catalogo"')||!mastersHtml.includes('id="tab-usuarios"')||!mastersHtml.includes('id="tab-bodegas"')||!mastersHtml.includes('bodegas.js'))
   throw new Error('La nueva pantalla de Maestras no es la versión publicada');
 for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const result=await fetch(origin+endpoint,{redirect:'manual',headers:{Cookie:cookie}});
@@ -25,6 +25,35 @@ for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const data=await result.json();
   if(!data.ok||!Array.isArray(data.items))throw new Error('Respuesta inválida de '+endpoint);
 }
+const warehouses=await fetch(origin+'/api/maestras/bodegas',{redirect:'manual',headers:{Cookie:cookie}});
+if(warehouses.status!==200)throw new Error('La maestra de Bodegas no está disponible para ADMIN; HTTP '+warehouses.status);
+const warehousesData=await warehouses.json();
+if(!warehousesData.ok||!Array.isArray(warehousesData.items))
+  throw new Error('La maestra de Bodegas no devolvió una lista válida');
+const own=await fetch(origin+'/api/maestras/bodegas?administration=PROPIA&active=1',
+  {redirect:'manual',headers:{Cookie:cookie}});
+const allies=await fetch(origin+'/api/maestras/bodegas?administration=ALIADO&active=1',
+  {redirect:'manual',headers:{Cookie:cookie}});
+if(own.status!==200||allies.status!==200)
+  throw new Error('No funcionan los filtros de PROPIA y ALIADO');
+const ownRows=(await own.json()).items;
+const allyRows=(await allies.json()).items;
+if(!Array.isArray(ownRows)||!Array.isArray(allyRows)||
+   ownRows.some(x=>x.administration!=='PROPIA'||x.is_active!==1)||
+   allyRows.some(x=>x.administration!=='ALIADO'||x.is_active!==1))
+  throw new Error('Los filtros de bodegas mezclan orígenes o destinos');
+const invalidWarehouse=await fetch(origin+'/api/maestras/bodegas/import',{
+  method:'POST',redirect:'manual',
+  headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
+  body:JSON.stringify({kind:'BODEGAS',mode:'validate',rows:[{
+    centro:'000001',almacen:'0001',description:'Prueba sin inserción',
+    administration:'NO_DEFINIDA',department:'Cesar',is_active:true
+  }]})
+});
+const invalidWarehouseData=await invalidWarehouse.json().catch(()=>({}));
+if(invalidWarehouse.status!==200||invalidWarehouseData.ok!==true||
+   invalidWarehouseData.valid!==false||!invalidWarehouseData.errors?.length)
+  throw new Error('La validación de Bodegas aceptó administración inválida');
 const linkProbe=await fetch(origin+'/api/usuarios/vincular-personal',{
   method:'POST',redirect:'manual',
   headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},

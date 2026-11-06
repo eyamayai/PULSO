@@ -9,9 +9,10 @@ const sql3 = fs.readFileSync(new URL('../cloudflare/migrations/0003_auth_passwor
 const sql4=fs.readFileSync(new URL('../cloudflare/migrations/0004_maestras_personal_y_sap.sql',import.meta.url),'utf8');
 const sql5=fs.readFileSync(new URL('../cloudflare/migrations/0005_usuarios_permisos.sql',import.meta.url),'utf8');
 const sql6=fs.readFileSync(new URL('../cloudflare/migrations/0006_vinculo_personal_usuarios.sql',import.meta.url),'utf8');
+const sql7=fs.readFileSync(new URL('../cloudflare/migrations/0007_bodegas_aliados.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup() {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6);
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7);
   const wrap = stmt => {
     let args=[];
     return {
@@ -520,4 +521,115 @@ test('Vinculación: restringida a administradores, sin autenticación ni origen 
  const extra=Array.from({length:81},()=>selections[0]);
  assert.equal((await associate(x,cookie,extra,'commit')).status,400);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM app_users').get().n,1);
+});
+
+
+const warehouse=(centro='0001',almacen='0001',administration='PROPIA',department='Cesar')=>({
+  centro,almacen,description:'Bodega de prueba '+centro+' - '+almacen,
+  administration,department,is_active:true
+});
+async function warehouseApi(x,cookie,method='GET',data=null,query=''){
+  return worker.fetch(x.req('/api/maestras/bodegas'+query,{
+    method,headers:{cookie},...(data?{data}:{})
+  }),x.env);
+}
+async function warehouseImport(x,cookie,rows,mode='validate',origin=root){
+  return worker.fetch(x.req('/api/maestras/bodegas/import',{
+    method:'POST',origin,headers:{cookie},data:{kind:'BODEGAS',mode,rows}
+  }),x.env);
+}
+test('Cuarta maestra empieza vacía; acceso exclusivo ADMIN y lectura filtrada',async()=>{
+  const x=setup();
+  assert.equal((await warehouseApi(x,'')).status,401);
+  assert.equal((await warehouseImport(x,'',[warehouse()])).status,401);
+  const cookie=await adminCookie(x);
+  const res=await warehouseApi(x,cookie);
+  assert.equal(res.status,200);
+  assert.deepEqual((await res.json()).items,[]);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouse_audit').get().n,0);
+});
+test('Centro y almacén forman clave única, preservan ceros y distinguen PROPIA de ALIADO',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  let r=await warehouseApi(x,cookie,'POST',warehouse('00100','0001','PROPIA','Cesar'));
+  assert.equal(r.status,201);
+  const own=(await r.json()).id;
+  r=await warehouseApi(x,cookie,'POST',warehouse('00100','0002','ALIADO','Guajira'));
+  assert.equal(r.status,201);
+  const other=(await r.json()).id;
+  r=await warehouseApi(x,cookie,'POST',warehouse('00100','0001','ALIADO','Cesar'));
+  assert.equal(r.status,409);
+  r=await warehouseApi(x,cookie,'GET',null,'?administration=PROPIA&active=1');
+  assert.equal(r.status,200);
+  let items=(await r.json()).items;
+  assert.equal(items.length,1);
+  assert.equal(items[0].id,own);
+  assert.equal(items[0].centro,'00100');
+  assert.equal(items[0].almacen,'0001');
+  assert.equal(items[0].department,'CESAR');
+  r=await warehouseApi(x,cookie,'GET',null,'?administration=ALIADO&active=1');
+  items=(await r.json()).items;
+  assert.equal(items.length,1);
+  assert.equal(items[0].id,other);
+  assert.equal(items[0].department,'LA GUAJIRA');
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,2);
+});
+test('Editar y desactivar un almacén conserva su identidad y auditoría',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const created=await warehouseApi(x,cookie,'POST',warehouse());
+  const id=(await created.json()).id;
+  let r=await warehouseApi(x,cookie,'PATCH',{id,description:'Bodega corregida',department:'San Andrés'});
+  assert.equal(r.status,200);
+  r=await warehouseApi(x,cookie,'PATCH',{id,is_active:false});
+  assert.equal(r.status,200);
+  r=await warehouseApi(x,cookie,'GET',null,'?administration=PROPIA&active=1');
+  assert.equal((await r.json()).items.length,0);
+  r=await warehouseApi(x,cookie,'GET');
+  let items=(await r.json()).items;
+  assert.equal(items.length,1);
+  assert.equal(items[0].description,'Bodega corregida');
+  assert.equal(items[0].department,'SAN ANDRES');
+  assert.equal(items[0].is_active,0);
+  r=await warehouseApi(x,cookie,'PATCH',{id,centro:'9999'});
+  assert.equal(r.status,409);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouse_audit').get().n,3);
+});
+test('Excel de Bodegas y Aliados valida primero y registra lote completo o ninguno',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const rows=Array.from({length:120},(_,i)=>warehouse(
+    String(1000+Math.floor(i/5)),String(i%5).padStart(4,'0'),i%2?'ALIADO':'PROPIA',
+    i%3===0?'Cesar':i%3===1?'La Guajira':'San Andrés'
+  ));
+  let r=await warehouseImport(x,cookie,rows);
+  assert.equal(r.status,200);
+  assert.equal((await r.json()).valid,true);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  r=await warehouseImport(x,cookie,[...rows,{...warehouse('9999','0001'),administration:'OTRA'}],'commit');
+  assert.equal(r.status,422);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  r=await warehouseImport(x,cookie,[...rows,rows[1]],'commit');
+  assert.equal(r.status,422);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
+  r=await warehouseImport(x,cookie,rows,'commit');
+  assert.equal(r.status,201);
+  assert.equal((await r.json()).inserted,120);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,120);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouse_audit').get().n,120);
+  assert.equal(x.database.prepare("SELECT COUNT(*) n FROM master_warehouses WHERE administration='PROPIA'").get().n,60);
+  r=await warehouseImport(x,cookie,rows,'commit');
+  assert.equal(r.status,422);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,120);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,0);
+});
+test('No permite más de 1000 filas, origen externo ni perfiles sin administración',async()=>{
+  const x=setup(),cookie=await adminCookie(x);
+  const rows=[warehouse()];
+  assert.equal((await warehouseImport(x,cookie,rows,'commit','https://externo.example')).status,403);
+  assert.equal((await warehouseImport(x,cookie,Array.from({length:1001},()=>warehouse()),'commit')).status,400);
+  x.addUser('respaldo-bodega@example.com','ClaveRespaldoSegura2026!');
+  x.database.prepare("UPDATE app_users SET role='AUDITOR' WHERE email='admin@example.com'").run();
+  assert.equal((await warehouseApi(x,cookie)).status,403);
+  assert.equal((await warehouseImport(x,cookie,rows,'commit')).status,403);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouses').get().n,0);
 });

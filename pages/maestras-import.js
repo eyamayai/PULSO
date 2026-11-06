@@ -11,7 +11,10 @@
       ['Correo','email'],['Teléfono','phone'],['Estado','is_active']]},
     CATALOGO:{name:'Equipos y Materiales',file:'PULSO_Maestra_Equipos_Materiales.xlsx',sheet:'Equipos_Materiales',columns:[
       ['Código SAP','sap_code'],['Descripción','description'],['Tipo','item_type'],
-      ['Perfil','serial_profile'],['Unidad','unit'],['Familia','family'],['Estado','is_active']]}
+      ['Perfil','serial_profile'],['Unidad','unit'],['Familia','family'],['Estado','is_active']]},
+    BODEGAS:{name:'Bodegas y Aliados',file:'PULSO_Maestra_Bodegas_Aliados.xlsx',sheet:'Bodegas_Aliados',columns:[
+      ['Centro','centro'],['Almacén','almacen'],['Descripción','description'],
+      ['Administración','administration'],['Departamento','department'],['Estado','is_active']]}
   };
   const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
   const schema=()=>SCHEMAS[$('bulk-kind').value];
@@ -64,7 +67,7 @@
         cell.alignment={vertical:'middle'};
       });
       for(const [,key] of def.columns.map((c,i)=>[i,c[1]])){
-        if(['document_number','supervisor_document','sap_code'].includes(key))ws.getColumn(key).numFmt='@';
+        if(['document_number','supervisor_document','sap_code','centro','almacen'].includes(key))ws.getColumn(key).numFmt='@';
       }
       ws.autoFilter={from:{row:1,column:1},to:{row:1,column:def.columns.length}};
       const buffer=await wb.xlsx.writeBuffer();
@@ -151,7 +154,8 @@
   async function send(mode) {
     checking=true;state();
     try {
-      const response=await fetch('/api/maestras/import',{
+      const endpoint=$('bulk-kind').value==='BODEGAS'?'/api/maestras/bodegas/import':'/api/maestras/import';
+      const response=await fetch(endpoint,{
         method:'POST',credentials:'same-origin',cache:'no-store',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({kind:$('bulk-kind').value,mode,rows})
@@ -178,8 +182,13 @@
     finally{checking=false;state();}
   }
   $('bulk-open').addEventListener('click',()=>{
-    $('bulk-kind').value=$('tab-catalogo').getAttribute('aria-selected')==='true'?'CATALOGO':'SUPERVISORES';
-    reset();$('bulk-dialog').showModal();
+    $('bulk-kind').value=$('tab-bodegas').getAttribute('aria-selected')==='true'?'BODEGAS'
+      :$('tab-catalogo').getAttribute('aria-selected')==='true'?'CATALOGO':'SUPERVISORES';
+    reset();
+    $('bulk-note').textContent=$('bulk-kind').value==='BODEGAS'
+      ?'Centro y Almacén deben ser únicos. Administración admite PROPIA o ALIADO.'
+      :'Descarga la plantilla y valida los registros antes de importarlos.';
+    $('bulk-dialog').showModal();
   });
   $('bulk-kind').addEventListener('change',()=>{
     reset();
@@ -187,6 +196,8 @@
       ?'La identificación del supervisor debe existir en Personal y estar activa.'
       :$('bulk-kind').value==='SUPERVISORES'
       ?'Carga primero los supervisores y después los técnicos.'
+      :$('bulk-kind').value==='BODEGAS'
+      ?'Centro y Almacén deben ser únicos. Administración admite PROPIA o ALIADO.'
       :'El SAP y su perfil de serie se validarán contra el catálogo existente.';
   });
   $('bulk-file').addEventListener('change',async()=>{
