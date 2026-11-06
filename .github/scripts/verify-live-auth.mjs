@@ -54,6 +54,35 @@ const invalidWarehouseData=await invalidWarehouse.json().catch(()=>({}));
 if(invalidWarehouse.status!==200||invalidWarehouseData.ok!==true||
    invalidWarehouseData.valid!==false||!invalidWarehouseData.errors?.length)
   throw new Error('La validación de Bodegas aceptó administración inválida');
+// Validación no destructiva de departamentos externos: sin crear ninguna bodega.
+const key='T'+Date.now().toString(36).toUpperCase();
+const nationalPreview=await fetch(origin+'/api/maestras/bodegas/import',{
+  method:'POST',redirect:'manual',
+  headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
+  body:JSON.stringify({kind:'BODEGAS',mode:'validate',rows:[
+    {centro:key,almacen:'A001',description:'Almacén aliado Cundinamarca',
+      administration:'ALIADO',department:'Cundinamarca',is_active:true},
+    {centro:key,almacen:'A002',description:'Almacén aliado Atlántico',
+      administration:'ALIADO',department:'Atlántico',is_active:true},
+    {centro:key,almacen:'A003',description:'Almacén propio Cesar',
+      administration:'PROPIA',department:'Cesar',is_active:true}
+  ]})
+});
+const national=(await nationalPreview.json().catch(()=>({})));
+if(nationalPreview.status!==200||national.valid!==true||national.total!==3)
+  throw new Error('La maestra no acepta departamentos nacionales de ALIADOS; estado '+nationalPreview.status);
+const ownOutside=await fetch(origin+'/api/maestras/bodegas/import',{
+  method:'POST',redirect:'manual',
+  headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},
+  body:JSON.stringify({kind:'BODEGAS',mode:'validate',rows:[
+    {centro:key,almacen:'A004',description:'Bodega propia no permitida',
+      administration:'PROPIA',department:'Cundinamarca',is_active:true}
+  ]})
+});
+const ownOutsideData=await ownOutside.json().catch(()=>({}));
+if(ownOutside.status!==200||ownOutsideData.valid!==false||
+   ownOutsideData.errors?.[0]?.field!=='Departamento')
+  throw new Error('Una bodega propia fuera de Costa R1 no fue bloqueada');
 const linkProbe=await fetch(origin+'/api/usuarios/vincular-personal',{
   method:'POST',redirect:'manual',
   headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json'},

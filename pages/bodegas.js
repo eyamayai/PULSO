@@ -10,7 +10,19 @@
     SIN_PERMISOS:'Solo el administrador puede modificar esta maestra.',
     ORIGEN_NO_AUTORIZADO:'La solicitud no está autorizada.'
   };
-  const labelDepartment={CESAR:'Cesar','LA GUAJIRA':'La Guajira','SAN ANDRES':'San Andrés'};
+  const departments=[["AMAZONAS","Amazonas"],["ANTIOQUIA","Antioquia"],["ARAUCA","Arauca"],["ATLANTICO","Atlántico"],["BOLIVAR","Bolívar"],["BOYACA","Boyacá"],["CALDAS","Caldas"],["CAQUETA","Caquetá"],["CASANARE","Casanare"],["CAUCA","Cauca"],["CESAR","Cesar"],["CHOCO","Chocó"],["CORDOBA","Córdoba"],["CUNDINAMARCA","Cundinamarca"],["GUAINIA","Guainía"],["GUAVIARE","Guaviare"],["HUILA","Huila"],["LA GUAJIRA","La Guajira"],["MAGDALENA","Magdalena"],["META","Meta"],["NARINO","Nariño"],["NORTE DE SANTANDER","Norte de Santander"],["PUTUMAYO","Putumayo"],["QUINDIO","Quindío"],["RISARALDA","Risaralda"],["SAN ANDRES","San Andrés"],["SANTANDER","Santander"],["SUCRE","Sucre"],["TOLIMA","Tolima"],["VALLE DEL CAUCA","Valle del Cauca"],["VAUPES","Vaupés"],["VICHADA","Vichada"],["BOGOTA D.C.","Bogotá D. C."]];
+  const ownDepartments=new Set(['CESAR','LA GUAJIRA','SAN ANDRES']);
+  const labelDepartment=Object.fromEntries(departments);
+  function departmentOptions(){
+    const field=$('warehouse-department');
+    const selected=field.value;
+    const onlyOwn=$('warehouse-administration').value==='PROPIA';
+    field.replaceChildren(new Option('Seleccione...',''));
+    for(const [code,title] of departments){
+      if(!onlyOwn||ownDepartments.has(code))field.add(new Option(title,code));
+    }
+    field.value=[...field.options].some(o=>o.value===selected)?selected:'';
+  }
   function notice(message,error=false){
     const el=$('master-message');el.hidden=!message;el.textContent=message||'';el.classList.toggle('error',error);
   }
@@ -84,6 +96,7 @@
     $('warehouse-almacen').value=item?.almacen||'';
     $('warehouse-description').value=item?.description||'';
     $('warehouse-administration').value=item?.administration||'PROPIA';
+    departmentOptions();
     $('warehouse-department').value=item?.department||'';
     $('warehouse-active').checked=item?item.is_active===1:true;
     $('warehouse-centro').readOnly=Boolean(item);
@@ -133,6 +146,8 @@
   $('warehouse-search').addEventListener('input',render);
   $('warehouse-admin-filter').addEventListener('change',render);
   $('warehouse-status-filter').addEventListener('change',render);
+  $('warehouse-administration').addEventListener('change',departmentOptions);
+  departmentOptions();
   $('warehouse-new').addEventListener('click',()=>open());
   $('warehouse-form').addEventListener('submit',save);
   $('warehouse-close').addEventListener('click',()=>$('warehouse-dialog').close());

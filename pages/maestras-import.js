@@ -186,7 +186,7 @@
       :$('tab-catalogo').getAttribute('aria-selected')==='true'?'CATALOGO':'SUPERVISORES';
     reset();
     $('bulk-note').textContent=$('bulk-kind').value==='BODEGAS'
-      ?'Centro y Almacén deben ser únicos. Administración admite PROPIA o ALIADO.'
+      ?'Centro y Almacén únicos. PROPIA: Cesar, La Guajira o San Andrés. ALIADO: cualquier departamento de Colombia o Bogotá D. C.'
       :'Descarga la plantilla y valida los registros antes de importarlos.';
     $('bulk-dialog').showModal();
   });
@@ -197,7 +197,7 @@
       :$('bulk-kind').value==='SUPERVISORES'
       ?'Carga primero los supervisores y después los técnicos.'
       :$('bulk-kind').value==='BODEGAS'
-      ?'Centro y Almacén deben ser únicos. Administración admite PROPIA o ALIADO.'
+      ?'Centro y Almacén únicos. PROPIA: Cesar, La Guajira o San Andrés. ALIADO: cualquier departamento de Colombia o Bogotá D. C.'
       :'El SAP y su perfil de serie se validarán contra el catálogo existente.';
   });
   $('bulk-file').addEventListener('change',async()=>{

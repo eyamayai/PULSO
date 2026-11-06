@@ -751,6 +751,20 @@ async function linkPersonnelToUsers(request,env,user) {
  * Dar de alta un registro nunca crea inventario ni movimientos.
  */
 const WAREHOUSE_ADMIN = new Set(['PROPIA','ALIADO']);
+// Mantener los 3 departamentos operativos de Personal y las bodegas propias;
+// los aliados pueden tener centros en todo Colombia.
+const NATIONAL_WAREHOUSE_DEPARTMENTS = new Set(["AMAZONAS","ANTIOQUIA","ARAUCA","ATLANTICO","BOLIVAR","BOYACA","CALDAS","CAQUETA","CASANARE","CAUCA","CESAR","CHOCO","CORDOBA","CUNDINAMARCA","GUAINIA","GUAVIARE","HUILA","LA GUAJIRA","MAGDALENA","META","NARINO","NORTE DE SANTANDER","PUTUMAYO","QUINDIO","RISARALDA","SAN ANDRES","SANTANDER","SUCRE","TOLIMA","VALLE DEL CAUCA","VAUPES","VICHADA","BOGOTA D.C."]);
+function canonicalWarehouseDepartment(value){
+  const department=canonicalDepartment(value);
+  const compact=department.replace(/[.,]/g,' ').replace(/\s+/g,' ').trim();
+  if(['BOGOTA','BOGOTA DC','BOGOTA D C','DISTRITO CAPITAL','BOGOTA DISTRITO CAPITAL'].includes(compact))
+    return 'BOGOTA D.C.';
+  return department;
+}
+function warehouseDepartmentAllowed(administration,department){
+  return administration==='PROPIA' ? DEPARTMENTS.has(department)
+    : administration==='ALIADO' && NATIONAL_WAREHOUSE_DEPARTMENTS.has(department);
+}
 const WAREHOUSE_FIELDS = ['centro','almacen','description','administration','department','is_active'];
 function normalizeWarehouse(data) {
   if(data.is_active!==undefined && ![true,false,0,1].includes(data.is_active))return null;
@@ -759,14 +773,14 @@ function normalizeWarehouse(data) {
     almacen:trimmed(data.almacen,30).toUpperCase(),
     description:trimmed(data.description,160),
     administration:trimmed(data.administration,15).toUpperCase(),
-    department:canonicalDepartment(data.department),
+    department:canonicalWarehouseDepartment(data.department),
     is_active:data.is_active===0||data.is_active===false?0:1
   };
   const warehouseCode=/^[A-Z0-9][A-Z0-9._/-]{0,29}$/;
   if(!warehouseCode.test(record.centro)||!warehouseCode.test(record.almacen)||
      record.description.length<3||record.description.length>160||
      !WAREHOUSE_ADMIN.has(record.administration)||
-     !DEPARTMENTS.has(record.department))return null;
+     !warehouseDepartmentAllowed(record.administration,record.department))return null;
   return record;
 }
 async function warehouseHandler(request,env,user) {
@@ -852,10 +866,14 @@ async function bulkWarehouses(request,env,user){
     }
     const v=normalizeWarehouse(r);
     if(!v){
-      if(!DEPARTMENTS.has(canonicalDepartment(r.department)))
-        addError(row,'Departamento','Solo Cesar, La Guajira o San Andrés');
-      else if(!WAREHOUSE_ADMIN.has(trimmed(r.administration,15).toUpperCase()))
+      const administration=trimmed(r.administration,15).toUpperCase();
+      const department=canonicalWarehouseDepartment(r.department);
+      if(!WAREHOUSE_ADMIN.has(administration))
         addError(row,'Administración','Solo PROPIA o ALIADO');
+      else if(!NATIONAL_WAREHOUSE_DEPARTMENTS.has(department))
+        addError(row,'Departamento','Departamento colombiano no reconocido');
+      else if(administration==='PROPIA'&&!DEPARTMENTS.has(department))
+        addError(row,'Departamento','Las bodegas PROPIAS solo admiten Cesar, La Guajira o San Andrés');
       else addError(row,'Datos','Centro, Almacén, Descripción o Estado inválidos');
       continue;
     }

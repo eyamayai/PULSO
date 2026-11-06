@@ -12,6 +12,7 @@ on:
       - 'cloudflare/migrations/0005_usuarios_permisos.sql'
       - 'cloudflare/migrations/0006_vinculo_personal_usuarios.sql'
       - 'cloudflare/migrations/0007_bodegas_aliados.sql'
+      - 'cloudflare/migrations/0008_departamentos_aliados.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -52,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -73,6 +74,8 @@ jobs:
           grep -q 'id="warehouse-dialog"' pages/maestras.html
           grep -q 'BODEGAS' pages/maestras-import.js
           node --check pages/bodegas.js
+          grep -q 'NATIONAL_WAREHOUSE_DEPARTMENTS' pages/auth-worker.mjs
+          grep -q 'CUNDINAMARCA' cloudflare/migrations/0008_departamentos_aliados.sql
           node --check pages/auth-worker.mjs
           grep -q 'usuarios.js' pages/maestras.html
           grep -q 'id="user-invite-dialog"' pages/maestras.html
@@ -137,6 +140,14 @@ jobs:
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0005_usuarios_permisos.sql
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0006_vinculo_personal_usuarios.sql
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0007_bodegas_aliados.sql
+          # Una sola vez: reconstruye el CHECK de departamentos y preserva bodegas y auditoría.
+          # El resto de despliegues no vuelve a reconstruir la tabla.
+          WAREHOUSE_SCHEMA=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='master_logistics_locations'")
+          if ! printf '%s' "$WAREHOUSE_SCHEMA" | grep -q 'CUNDINAMARCA'; then
+            npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0008_departamentos_aliados.sql
+          else
+            echo "La estructura nacional de Bodegas y Aliados ya está aplicada"
+          fi
 
       - name: Preparar administrador inicial si fue autorizado
         env:

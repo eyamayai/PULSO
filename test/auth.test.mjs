@@ -10,9 +10,10 @@ const sql4=fs.readFileSync(new URL('../cloudflare/migrations/0004_maestras_perso
 const sql5=fs.readFileSync(new URL('../cloudflare/migrations/0005_usuarios_permisos.sql',import.meta.url),'utf8');
 const sql6=fs.readFileSync(new URL('../cloudflare/migrations/0006_vinculo_personal_usuarios.sql',import.meta.url),'utf8');
 const sql7=fs.readFileSync(new URL('../cloudflare/migrations/0007_bodegas_aliados.sql',import.meta.url),'utf8');
+const sql8=fs.readFileSync(new URL('../cloudflare/migrations/0008_departamentos_aliados.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
-function setup() {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7);
+function setup({legacyWarehouse=false}={}) {
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse)database.exec(sql8);
   const wrap = stmt => {
     let args=[];
     return {
@@ -632,4 +633,78 @@ test('No permite más de 1000 filas, origen externo ni perfiles sin administraci
   assert.equal((await warehouseApi(x,cookie)).status,403);
   assert.equal((await warehouseImport(x,cookie,rows,'commit')).status,403);
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
+});
+
+
+test('Aliados pueden estar en Cundinamarca, Bogotá y departamentos nacionales; propias solo en Costa R1',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const examples=[
+   warehouse('C906','U001','ALIADO','Cundinamarca'),
+   warehouse('C906','L044','ALIADO','Cundinamarca'),
+   warehouse('C906','L043','ALIADO','Cundinamarca'),
+   warehouse('C907','0001','ALIADO','Bogotá, D.C.'),
+   warehouse('C908','0010','ALIADO','Atlántico'),
+   warehouse('C901','A221','PROPIA','San Andrés'),
+   warehouse('C903','A223','PROPIA','Cesar'),
+   warehouse('C903','A221','PROPIA','La Guajira')
+ ];
+ const validate=await warehouseImport(x,cookie,examples,'validate');
+ assert.equal(validate.status,200);
+ assert.equal((await validate.json()).valid,true);
+ const saved=await warehouseImport(x,cookie,examples,'commit');
+ assert.equal(saved.status,201);
+ assert.equal((await saved.json()).inserted,8);
+ const ally=(await (await warehouseApi(x,cookie,'GET',null,'?administration=ALIADO&active=1')).json()).items;
+ assert.equal(ally.length,5);
+ assert.equal(ally.filter(x=>x.department==='CUNDINAMARCA').length,3);
+ assert.ok(ally.some(x=>x.department==='BOGOTA D.C.'));
+ assert.ok(ally.some(x=>x.department==='ATLANTICO'));
+ const own=(await (await warehouseApi(x,cookie,'GET',null,'?administration=PROPIA&active=1')).json()).items;
+ assert.equal(own.length,3);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,8);
+});
+test('No permite bodega PROPIA en Cundinamarca, pero sí ALIADO; no permite departamentos falsos',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const invalidOwn=warehouse('C001','001','PROPIA','Cundinamarca');
+ let r=await warehouseImport(x,cookie,[invalidOwn],'validate');
+ assert.equal(r.status,200);
+ let p=await r.json();
+ assert.equal(p.valid,false);
+ assert.equal(p.errors[0].field,'Departamento');
+ assert.match(p.errors[0].message,/PROPIAS/);
+ r=await warehouseApi(x,cookie,'POST',invalidOwn);
+ assert.equal(r.status,400);
+ r=await warehouseImport(x,cookie,[warehouse('C002','001','ALIADO','Departamento inventado')],'commit');
+ assert.equal(r.status,422);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,0);
+});
+test('Migración nacional conserva IDs, estado, fechas y auditoría, es repetible y respeta claves foráneas',async()=>{
+ const x=setup({legacyWarehouse:true}),cookie=await adminCookie(x);
+ let r=await warehouseApi(x,cookie,'POST',warehouse('C001','A001','PROPIA','Cesar'));
+ assert.equal(r.status,201);
+ const id=(await r.json()).id;
+ await warehouseApi(x,cookie,'PATCH',{id,is_active:false});
+ const old=x.database.prepare('SELECT * FROM master_logistics_locations WHERE id=?').get(id);
+ const audit=x.database.prepare('SELECT * FROM master_warehouse_audit WHERE warehouse_id=? ORDER BY created_at').all(id);
+ assert.equal(audit.length,2);
+ x.database.exec(sql8);
+ const after=x.database.prepare('SELECT * FROM master_logistics_locations WHERE id=?').get(id);
+ assert.deepEqual(after,old);
+ assert.deepEqual(x.database.prepare('SELECT * FROM master_warehouse_audit WHERE warehouse_id=? ORDER BY created_at').all(id),audit);
+ assert.deepEqual(x.database.prepare('PRAGMA foreign_key_check').all(),[]);
+ x.database.exec(sql8);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,1);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_warehouse_audit').get().n,2);
+ r=await warehouseApi(x,cookie,'POST',warehouse('C906','U001','ALIADO','Cundinamarca'));
+ assert.equal(r.status,201);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_logistics_locations WHERE department=?').get('CUNDINAMARCA').n,1);
+});
+test('La maestra Personal sigue limitada a los 3 departamentos operativos',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const r=await worker.fetch(x.req('/api/maestras/personal',{
+   method:'POST',headers:{cookie},
+   data:{...supervisor,document_number:'10334455',department:'Cundinamarca'}
+ }),x.env);
+ assert.equal(r.status,400);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
 });
