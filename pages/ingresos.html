@@ -213,6 +213,27 @@
      </aside>
     </div>
   </section>
+
+  <section id="ingress-detail" class="ingress-detail" hidden aria-labelledby="ingress-detail-title">
+   <div class="ingress-back-heading">
+    <button class="ingress-back" id="ingress-detail-back" type="button" aria-label="Volver al listado de ingresos" title="Volver al listado">‹</button>
+    <div><h2 id="ingress-detail-title">Detalle del ingreso registrado</h2><p id="ingress-detail-reference">Registro confirmado</p></div>
+    <span class="ingress-detail-status">✓ Registrado</span>
+   </div>
+   <div class="income-panel ingress-detail-panel">
+    <div class="ingress-detail-heading">
+     <div><div class="income-eyebrow">CONSULTA DE INVENTARIO</div><h2>Resumen de ítems</h2><p id="ingress-detail-pedido">Número de Pedido</p></div>
+     <div class="ingress-detail-counts"><span id="ingress-detail-lines">0 ítems</span><span id="ingress-detail-units">0 unidades</span></div>
+    </div>
+    <div class="ingress-table-wrap ingress-detail-table-wrap">
+     <table class="ingress-table" aria-label="Resumen de ítems registrados">
+      <thead><tr><th>SAP</th><th>Descripción</th><th>Serial</th><th>Cantidad</th><th>Lote</th><th>Estado de recepción</th></tr></thead>
+      <tbody id="ingress-detail-items"></tbody>
+     </table>
+    </div>
+    <p class="ingress-detail-footnote">Solo lectura. Los ítems de este ingreso ya están contabilizados en inventario.</p>
+   </div>
+  </section>
  </div>
 </main>
 </div>

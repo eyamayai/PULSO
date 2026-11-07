@@ -805,6 +805,39 @@ test('Ingresos: confirma sin PDF y registra serial, cantidades y movimiento en u
  assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f))).status,409);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
 });
+
+test('Ingresos registrados: la consulta de detalle no reporta seriales ya contabilizados',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie),payload=ingPayload(f);
+ await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const response=await ingApi(x,cookie,'/'+id);
+ assert.equal(response.status,200);
+ const detail=await response.json();
+ assert.equal(detail.document.status,'REGISTRADO');
+ assert.equal(detail.validation,null);
+ assert.equal(detail.items.length,2);
+ assert.equal(detail.items[0].serial,'EQ-001');
+ assert.equal(detail.items[0].lot,'VALORADO');
+ assert.equal(detail.items[0].reception_state,'NUEVO');
+ assert.equal(detail.items[0].sap_description,'Equipo SAP-10001');
+ assert.equal((await ingApi(x,cookie,'/'+id+'/validar')).status,409);
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',payload)).status,409);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+});
+test('Interfaz de detalle de ingresos: historial sin pasos ni controles de modificación',()=>{
+ const source=fs.readFileSync(new URL('../pages/ingresos.js',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/ingresos.html',import.meta.url),'utf8');
+ const css=fs.readFileSync(new URL('../pages/ingresos.css',import.meta.url),'utf8');
+ assert.match(source,/if\(data.document.status==='REGISTRADO'\)\{\s*showRegisteredDetail\(data\);\s*return;/);
+ assert.match(source,/\$\('ingress-wizard'\).hidden=true;\s*\$\('ingress-detail'\).hidden=false/);
+ assert.match(source,/const body=\$\('ingress-detail-items'\);body.replaceChildren\(\)/);
+ assert.match(source,/\$\('ingress-detail-back'\).addEventListener\('click'/);
+ assert.match(html,/id="ingress-detail" class="ingress-detail" hidden/);
+ const area=html.split('id="ingress-detail"')[1].split('</section>')[0];
+ assert.doesNotMatch(area,/ingress-steps|ing-confirm|ing-validation|ing-item-edit/);
+ assert.match(css,/\.ingress-detail\[hidden\]/);
+});
 test('Ingresos: serial repetido bloquea segundo documento sin sumar cantidades',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
  const a=await ingNew(x,cookie);

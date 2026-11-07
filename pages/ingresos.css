@@ -20,8 +20,8 @@
 .income-button.ghost{color:#00795d;background:#fff}
 .income-button.small{padding:10px 13px;font-size:11px}
 .income-button:disabled{cursor:default;opacity:.46}
-.ingress-home,.ingress-wizard{display:flex;flex-direction:column;gap:17px;min-width:0}
-.ingress-home[hidden],.ingress-wizard[hidden],.ingress-step-view[hidden],.income-file-actions[hidden],.ingress-empty[hidden],.ingress-inline-message[hidden],.income-warning[hidden],#ing-confirm[hidden]{display:none!important}
+.ingress-home,.ingress-wizard,.ingress-detail{display:flex;flex-direction:column;gap:17px;min-width:0}
+.ingress-home[hidden],.ingress-wizard[hidden],.ingress-detail[hidden],.ingress-step-view[hidden],.income-file-actions[hidden],.ingress-empty[hidden],.ingress-inline-message[hidden],.income-warning[hidden],#ing-confirm[hidden]{display:none!important}
 .income-home-actions{display:flex;align-items:center;justify-content:space-between;gap:15px}
 .income-home-actions h2{font-size:24px;letter-spacing:-.6px;color:#fff;margin:5px 0 0}
 .ingress-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -246,3 +246,23 @@
 .ingress-item-actions .ingress-item-remove{
  border:1px solid #f4dfd9;background:#fff1ec;color:#ab5038;
 }
+
+
+/* Consulta histórica de solo lectura, distinta del asistente de ingreso. */
+.ingress-detail{width:100%;min-width:0}
+.ingress-detail-status{margin-left:auto;background:#e1f5e9;color:#087d5b;border-radius:25px;padding:9px 15px;font-weight:800;font-size:11px;white-space:nowrap}
+.ingress-detail-panel{padding:22px;min-width:0}
+.ingress-detail-heading{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:20px}
+.ingress-detail-heading h2{font-size:24px;color:#153e35;margin:7px 0}
+.ingress-detail-heading p{font-size:12px;color:#668578}
+.ingress-detail-counts{display:flex;gap:8px;flex-wrap:wrap}
+.ingress-detail-counts span{background:#eaf6ed;border-radius:22px;padding:8px 13px;color:#0b7559;font-weight:800;font-size:11px}
+.ingress-detail-table-wrap{max-height:min(64dvh,700px);border:1px solid #deebe3;border-radius:12px;overflow:auto;overscroll-behavior:contain}
+.ingress-detail-table-wrap .ingress-table{min-width:760px}
+.ingress-detail-table-wrap .ingress-table th{position:sticky;top:0;z-index:2;background:#f5f9f7}
+.ingress-detail-table-wrap .ingress-table td{padding:13px 15px;overflow-wrap:anywhere}
+.ingress-detail-table-wrap .ingress-table th:nth-child(2){min-width:220px}
+.ingress-detail-table-wrap .ingress-table th:nth-child(3){min-width:160px}
+.ingress-detail-table-wrap .ingress-table th:nth-child(6){min-width:170px}
+.ingress-detail-footnote{font-size:11px;color:#668578;line-height:1.5;margin-top:14px}
+@media(max-width:760px){.ingress-detail-panel{padding:15px 11px}.ingress-detail-heading h2{font-size:21px}.ingress-detail-status{margin-left:0}.ingress-detail-table-wrap{max-height:60dvh}}

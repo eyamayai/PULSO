@@ -1179,6 +1179,7 @@ async function ingresosHandler(request,env,user,path){
   if(action==='validar'){
     if(method!=='GET'&&method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
     if(method==='POST'&&!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+    if(doc.status!=='BORRADOR')return ingBad('INGRESO_YA_REGISTRADO',409);
     const validation=await ingValidate(db,doc,item.items);
     return json({ok:true,validation});
   }
@@ -1206,7 +1207,8 @@ async function ingresosHandler(request,env,user,path){
   }
   if(action)return ingBad('RUTA_NO_DISPONIBLE',404);
   if(method==='GET'){
-    const validation=await ingValidate(db,doc,item.items);
+    // La revisión de duplicados solo aplica a borradores, nunca a registros ya contabilizados.
+    const validation=doc.status==='BORRADOR'?await ingValidate(db,doc,item.items):null;
     return json({ok:true,...item,validation});
   }
   if(method==='DELETE'){

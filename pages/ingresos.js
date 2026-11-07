@@ -425,10 +425,40 @@
     $('ing-support-select').disabled=status!=='BORRADOR';
     $('ing-support-remove').disabled=status!=='BORRADOR';
   }
+  // Los ingresos contabilizados se consultan como historial, nunca como borradores.
+  function showRegisteredDetail(data){
+    const doc=data.document,rows=data.items||[];
+    id=doc.id;status='REGISTRADO';dirty=false;validation=null;
+    editingIndex=null;editingDraft=null;editingNew=false;
+    text('ingress-detail-reference',doc.reference||'Registro confirmado');
+    text('ingress-detail-pedido',(DOC_TYPES[doc.document_type]||'Documento')+' · '+(doc.document_number||'Sin número'));
+    text('ingress-detail-lines',rows.length+' ítem'+(rows.length===1?'':'s'));
+    const units=rows.reduce((total,row)=>total+(Number(row.quantity)||0),0);
+    text('ingress-detail-units',units+' unidad'+(units===1?'':'es'));
+    const body=$('ingress-detail-items');body.replaceChildren();
+    for(const item of rows){
+      const tr=elt('tr');
+      cell(tr,item.sap_code||'—');
+      cell(tr,item.sap_description||bySap.get(n(item.sap_code))?.description||'Sin descripción');
+      cell(tr,item.serial||'Sin serial');
+      cell(tr,Number(item.quantity)||0);
+      cell(tr,item.lot||'Sin clasificar');
+      cell(tr,item.reception_state==='REMANUFACTURADO'?'Remanufacturado':item.reception_state==='NUEVO'?'Nuevo':item.reception_state||'Sin clasificar');
+      body.append(tr);
+    }
+    $('ingress-home').hidden=true;
+    $('ingress-wizard').hidden=true;
+    $('ingress-detail').hidden=false;
+  }
   async function openIngress(entryId){
     if(busy)return;busy=true;
     try{
       const data=await api('/'+entryId);
+      if(data.document.status==='REGISTRADO'){
+        showRegisteredDetail(data);
+        return;
+      }
+      $('ingress-detail').hidden=true;
       id=entryId;status=data.document.status;
       editingIndex=null;editingDraft=null;editingNew=false;
       support={size:data.document.support_size||0,filename:data.document.support_filename||''};
@@ -465,7 +495,7 @@
     text('ingress-reference-label','Borrador · '+id.slice(0,8));
     text('income-wizard-title','Nuevo ingreso');
     text('ingress-save-indicator','Borrador creado');
-    $('ingress-home').hidden=true;$('ingress-wizard').hidden=false;
+    $('ingress-home').hidden=true;$('ingress-detail').hidden=true;$('ingress-wizard').hidden=false;
     for(const control of $('ingress-step-1').querySelectorAll('input:not([type=file]),select,textarea'))control.disabled=false;
     $('ing-confirm-ack').checked=false;
     reflectSupport();renderItems();renderSummary();renderValidation();renderConfirmation();
@@ -474,7 +504,7 @@
   async function goHome(){
     if(editingIndex!==null){showMessage('Aplica o cancela la edición del ítem '+(editingIndex+1)+' antes de salir.',true);return;}
     if(status==='BORRADOR'&&dirty&&!await saveDraft({quiet:true}))return;
-    $('ingress-wizard').hidden=true;$('ingress-home').hidden=false;id='';
+    $('ingress-wizard').hidden=true;$('ingress-detail').hidden=true;$('ingress-home').hidden=false;id='';
     try{list=(await api('')).items||[];renderList();}
     catch(e){alert(e.message);}
   }
@@ -610,6 +640,7 @@
     $('ingress-search').addEventListener('input',renderList);
     $('ingress-status-filter').addEventListener('change',renderList);
     $('ingress-back-home').addEventListener('click',()=>void goHome());
+    $('ingress-detail-back').addEventListener('click',()=>void goHome());
     $('ing-save').addEventListener('click',()=>void saveDraft());
     $('ing-prev').addEventListener('click',()=>void navigate(step-1));
     $('ing-next').addEventListener('click',()=>void navigate(step+1));
