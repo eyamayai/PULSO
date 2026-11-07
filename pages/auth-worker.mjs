@@ -1495,11 +1495,42 @@ async function dispatchHandler(request,env,user,path){
   return json({ok:true,technicians:people.results||[],warehouses:warehouses.results||[],
     serials:serials.results||[],bulk:bulk.results||[]});
  }
+ // Vistas independientes de consulta, sin efectuar movimientos de inventario.
+ if(path==='/api/despachos/consultas'){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  const [technicians,equipment]=await Promise.all([
+   db.prepare(
+    "SELECT m.technician_id,p.full_name AS technician_name,p.document_number AS technician_document,"+
+    "COUNT(DISTINCT m.dispatch_id) AS dispatch_count,COALESCE(SUM(m.quantity),0) AS assigned_units,"+
+    "MAX(d.dispatch_date) AS last_dispatch "+
+    "FROM dispatch_movements m JOIN dispatch_documents d ON d.id=m.dispatch_id "+
+    "JOIN master_personnel p ON p.id=m.technician_id "+
+    "WHERE d.status='DESPACHADO' AND (trim(m.serial)='' OR EXISTS("+
+    "SELECT 1 FROM dispatch_serial_assignments a WHERE a.dispatch_item_id=m.dispatch_item_id)) "+
+    "GROUP BY m.technician_id,p.full_name,p.document_number "+
+    "ORDER BY assigned_units DESC,p.full_name COLLATE NOCASE LIMIT 2500"
+   ).all(),
+   db.prepare(
+    "SELECT m.dispatch_id,d.reference,d.dispatch_date,m.technician_id,"+
+    "p.full_name AS technician_name,p.document_number AS technician_document,"+
+    "m.sap_code,s.description AS sap_description,m.serial,m.quantity,"+
+    "w.description AS warehouse_name "+
+    "FROM dispatch_movements m JOIN dispatch_documents d ON d.id=m.dispatch_id "+
+    "JOIN master_personnel p ON p.id=m.technician_id "+
+    "LEFT JOIN master_sap_catalog s ON s.sap_code=m.sap_code "+
+    "LEFT JOIN master_logistics_locations w ON w.id=m.warehouse_id "+
+    "WHERE d.status='DESPACHADO' AND (trim(m.serial)='' OR EXISTS("+
+    "SELECT 1 FROM dispatch_serial_assignments a WHERE a.dispatch_item_id=m.dispatch_item_id)) "+
+    "ORDER BY d.dispatch_date DESC,m.created_at DESC,m.id DESC LIMIT 2500"
+   ).all()
+  ]);
+  return json({ok:true,technicians:technicians.results||[],equipment:equipment.results||[]});
+ }
  if(path==='/api/despachos'){
   if(method==='GET'){
    const [r,stocks,bulk,assign,technicians,assignedTotal]=await Promise.all([
     db.prepare(
-     "SELECT d.id,d.reference,d.status,d.dispatch_date,d.created_at,d.notes,"+
+     "SELECT d.id,d.reference,d.status,d.dispatch_date,d.created_at,d.notes,d.technician_id,"+
      "p.full_name AS technician_name,p.document_number AS technician_document,"+
      "w.description AS warehouse_name,"+
      "(SELECT count(*) FROM dispatch_items i WHERE i.dispatch_id=d.id) AS item_count,"+

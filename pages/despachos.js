@@ -14,9 +14,9 @@
   const date=new Date(),pad=x=>String(x).padStart(2,'0');
   return date.getFullYear()+'-'+pad(date.getMonth()+1)+'-'+pad(date.getDate());
  };
- let records=[],metrics={},technicians=[],warehouses=[],serials=[],bulk=[];
+ let records=[],metrics={},technicians=[],warehouses=[],serials=[],bulk=[],technicianSummaries=[],activeEquipment=[];
  let dispatchId='',dispatchStatus='BORRADOR',items=[],step=1,dirty=false,busy=false;
- let currentMode='manual',validation=null,activeTab='recent';
+ let currentMode='manual',validation=null,activeTab='recent',pageIndex=0;
  const toast=(message,error=false)=>{
   const el=$('dispatch-toast');el.textContent=message||'';el.hidden=!message;el.classList.toggle('error',error);
  };
@@ -72,41 +72,165 @@
   const angle=total?Math.round(assigned/total*360):0;
   $('dispatch-donut').style.background='conic-gradient(#008665 0deg '+angle+'deg, #a9eccc '+angle+'deg 360deg)';
  }
- function listView(){
-  const query=txt($('dispatch-search').value).toLowerCase(),filter=$('dispatch-filter').value;
-  const rows=records.filter(record=>{
-   if(activeTab==='active'&&record.status!=='DESPACHADO')return false;
-   if(activeTab==='tech'&&record.status!=='DESPACHADO')return false;
-   if(filter&&record.status!==filter)return false;
-   return !query||[record.reference,record.technician_name,record.technician_document,
-    record.warehouse_name,record.dispatch_date].join(' ').toLowerCase().includes(query);
+ const tabConfig={
+  recent:{
+   title:'Los últimos movimientos de asignación y sus borradores.',
+   search:'Buscar por referencia, técnico o documento...',
+   headers:['Referencia','Fecha','Técnico','Ítems','Unidades','Estado','Acciones'],
+   empty:'Todavía no hay movimientos recientes.'
+  },
+  tech:{
+   title:'Consolidado de equipos asignados a cada técnico responsable.',
+   search:'Buscar por nombre o identificación del técnico...',
+   headers:['Técnico responsable','Identificación','Despachos','Unidades asignadas','Última entrega','Acciones'],
+   empty:'Todavía no hay técnicos con equipos asignados.'
+  },
+  active:{
+   title:'Trazabilidad de equipos y materiales actualmente bajo responsabilidad de técnicos.',
+   search:'Buscar por técnico, SAP, descripción o serial...',
+   headers:['Técnico','Código SAP','Descripción','Serial','Cantidad','Fecha','Acciones'],
+   empty:'Todavía no hay equipos asignados a técnicos.'
+  },
+  history:{
+   title:'Consulta de despachos confirmados, con filtros por técnico y fechas.',
+   search:'Buscar por referencia, técnico o serial...',
+   headers:['Referencia','Fecha','Técnico','Ítems','Unidades','Estado','Acciones'],
+   empty:'No hay despachos confirmados con estos filtros.'
+  }
+ };
+ function contains(text,query){return String(text??'').toLowerCase().includes(query);}
+ function matchAny(values,query){return !query||values.some(value=>contains(value,query));}
+ function listCell(row,value,sub='',strong=false){
+  const cell=make('td');
+  if(strong)cell.append(make('strong',value??'—'));
+  else cell.append(make('span',value??'—'));
+  if(sub)cell.append(make('small',sub,'dispatch-cell-detail'));
+  row.append(cell);
+  return cell;
+ }
+ function actionButton(label,action,className='ingress-row-button'){
+  const button=make('button',label,className);
+  button.type='button';button.addEventListener('click',action);
+  return button;
+ }
+ function viewDispatch(record,body){
+  const tr=make('tr');
+  listCell(tr,record.reference||'Borrador',
+    record.status==='DESPACHADO'?'Asignación confirmada':'Sin confirmar',true);
+  listCell(tr,record.dispatch_date||'Pendiente');
+  listCell(tr,record.technician_name||'Sin técnico');
+  listCell(tr,Number(record.item_count)||0);
+  listCell(tr,Number(record.total_units)||0);
+  const state=make('td');
+  state.append(make('span',record.status==='DESPACHADO'?'Despachado':'Borrador',
+    record.status==='DESPACHADO'?'dispatch-pill':'dispatch-pill draft'));
+  tr.append(state);
+  const actions=make('td'),buttons=make('div',undefined,'dispatch-list-actions');
+  buttons.append(actionButton(record.status==='BORRADOR'?'Continuar':'Ver detalle',()=>void openRecord(record.id)));
+  if(record.status==='BORRADOR')
+   buttons.append(actionButton('Eliminar',()=>void deleteRecord(record,buttons.lastElementChild),'ingress-row-button delete'));
+  actions.append(buttons);tr.append(actions);body.append(tr);
+ }
+ function viewTechnician(record,body){
+  const tr=make('tr');
+  listCell(tr,record.technician_name||'Sin nombre','Responsable de equipos',true);
+  listCell(tr,record.technician_document||'—');
+  listCell(tr,Number(record.dispatch_count)||0);
+  listCell(tr,Number(record.assigned_units)||0);
+  listCell(tr,record.last_dispatch||'—');
+  const actions=make('td');
+  actions.append(actionButton('Ver despachos',()=>{
+   activeTab='history';pageIndex=0;
+   $('dispatch-search').value='';
+   $('dispatch-technician-filter').value=record.technician_id;
+   showTab();listView();
+  }));
+  tr.append(actions);body.append(tr);
+ }
+ function viewEquipment(record,body){
+  const tr=make('tr');
+  listCell(tr,record.technician_name||'—',record.technician_document||'',true);
+  listCell(tr,record.sap_code,'',true);
+  listCell(tr,record.sap_description||'—');
+  listCell(tr,record.serial||'Sin serial');
+  listCell(tr,Number(record.quantity)||0);
+  listCell(tr,record.dispatch_date||'—');
+  const actions=make('td');
+  actions.append(actionButton('Ver detalle',()=>void openRecord(record.dispatch_id)));
+  tr.append(actions);body.append(tr);
+ }
+ function showTab(){
+  const config=tabConfig[activeTab];
+  document.querySelectorAll('.dispatch-tab').forEach(button=>{
+   const selected=button.dataset.tab===activeTab;
+   button.classList.toggle('current',selected);
+   button.setAttribute('aria-selected',String(selected));
   });
+  t('dispatch-view-caption',config.title);
+  $('dispatch-search').placeholder=config.search;
+  $('dispatch-state-control').hidden=activeTab!=='recent';
+  $('dispatch-technician-control').hidden=!(activeTab==='active'||activeTab==='history');
+  $('dispatch-date-from-control').hidden=activeTab!=='history';
+  $('dispatch-date-to-control').hidden=activeTab!=='history';
+  const header=$('dispatch-list-head');header.replaceChildren();
+  const row=make('tr');config.headers.forEach(name=>row.append(make('th',name)));
+  header.append(row);
+  t('dispatch-no-results',config.empty);
+ }
+ function viewRows(){
+  const query=txt($('dispatch-search').value).toLowerCase();
+  const selectedTech=$('dispatch-technician-filter').value;
+  if(activeTab==='tech'){
+   return technicianSummaries.filter(row=>matchAny([row.technician_name,row.technician_document],query))
+    .sort((a,b)=>Number(b.assigned_units)-Number(a.assigned_units)||
+      String(a.technician_name).localeCompare(String(b.technician_name),'es'));
+  }
+  if(activeTab==='active'){
+   return activeEquipment.filter(row=>
+    (!selectedTech||row.technician_id===selectedTech) &&
+    matchAny([row.technician_name,row.technician_document,row.sap_code,
+      row.sap_description,row.serial,row.reference],query)
+   );
+  }
+  const state=$('dispatch-filter').value;
+  const start=$('dispatch-date-from').value,end=$('dispatch-date-to').value;
+  const equipmentMatches=query?new Set(activeEquipment.filter(row=>
+   matchAny([row.sap_code,row.sap_description,row.serial],query)
+  ).map(row=>row.dispatch_id)) : new Set();
+  const result=records.filter(row=>{
+   if(activeTab==='history'){
+    if(row.status!=='DESPACHADO')return false;
+    if(selectedTech&&row.technician_id!==selectedTech)return false;
+    if(start&&(!row.dispatch_date||row.dispatch_date<start))return false;
+    if(end&&(!row.dispatch_date||row.dispatch_date>end))return false;
+   }else if(state&&row.status!==state)return false;
+   return !query||matchAny([row.reference,row.technician_name,row.technician_document,
+    row.warehouse_name,row.dispatch_date],query)||equipmentMatches.has(row.id);
+  });
+  return activeTab==='recent'?result.slice(0,12):result.sort((a,b)=>
+   String(b.dispatch_date||'').localeCompare(String(a.dispatch_date||''))||
+   String(b.created_at||'').localeCompare(String(a.created_at||'')));
+ }
+ function listView(){
+  const rows=viewRows(),pageSize=activeTab==='recent'?12:15;
+  const pageCount=Math.max(1,Math.ceil(rows.length/pageSize));
+  pageIndex=Math.min(Math.max(0,pageIndex),pageCount-1);
   const body=$('dispatch-list');body.replaceChildren();
-  for(const record of rows){
-   const tr=make('tr'),add=(value,secondary)=>{
-    const cell=make('td');cell.append(make('strong',value||'Pendiente'));
-    if(secondary)cell.append(make('small',secondary));
-    tr.append(cell);
-   };
-   add(record.reference||'Borrador',record.status==='DESPACHADO'?'Asignación confirmada':'Sin confirmar');
-   add(record.dispatch_date||'Pendiente');
-   add(record.technician_name||'Sin técnico');
-   add(record.item_count||0);
-   add(record.total_units||0);
-   const state=make('td');
-   state.append(make('span',record.status==='DESPACHADO'?'Despachado':'Borrador',record.status==='DESPACHADO'?'dispatch-pill':'dispatch-pill draft'));
-   tr.append(state);
-   const actions=make('td'),buttons=make('div',undefined,'dispatch-list-actions');
-   const open=make('button',record.status==='BORRADOR'?'Continuar':'Ver detalle','ingress-row-button');
-   open.type='button';open.addEventListener('click',()=>void openRecord(record.id));buttons.append(open);
-   if(record.status==='BORRADOR'){
-    const remove=make('button','Eliminar','ingress-row-button delete');
-    remove.type='button';remove.addEventListener('click',()=>void deleteRecord(record,remove));buttons.append(remove);
-   }
-   actions.append(buttons);tr.append(actions);body.append(tr);
+  const pageRows=rows.slice(pageIndex*pageSize,(pageIndex+1)*pageSize);
+  for(const row of pageRows){
+   if(activeTab==='tech')viewTechnician(row,body);
+   else if(activeTab==='active')viewEquipment(row,body);
+   else viewDispatch(row,body);
   }
   $('dispatch-no-results').hidden=rows.length>0;
-  t('dispatch-result-count',rows.length+' despacho'+(rows.length===1?'':'s'));
+  const label={recent:'movimientos recientes',tech:'técnicos',active:'equipos en uso',history:'despachos confirmados'}[activeTab];
+  t('dispatch-result-count',rows.length+' '+label);
+  t('dispatch-page-caption',rows.length?
+   'Mostrando '+(pageIndex*pageSize+1)+' a '+Math.min((pageIndex+1)*pageSize,rows.length)+' de '+rows.length
+   :'Sin resultados para esta vista');
+  t('dispatch-page-number',(pageIndex+1)+' / '+pageCount);
+  $('dispatch-page-prev').disabled=pageIndex<=0;
+  $('dispatch-page-next').disabled=pageIndex>=pageCount-1;
   refreshKpis();
  }
  function warehouseLabel(warehouse){
@@ -137,10 +261,18 @@
   }
  }
  async function reload(){
-  const [result,cat]=await Promise.all([api(''),api('/catalogos')]);
+  const [result,cat,views]=await Promise.all([api(''),api('/catalogos'),api('/consultas')]);
   records=result.items||[];metrics=result.metrics||{};
   technicians=cat.technicians||[];warehouses=cat.warehouses||[];
   serials=cat.serials||[];bulk=cat.bulk||[];
+  technicianSummaries=views.technicians||[];
+  activeEquipment=views.equipment||[];
+  const technicianChoices=$('dispatch-technician-filter'),existingTechnician=technicianChoices.value;
+  technicianChoices.replaceChildren(new Option('Todos',''));
+  for(const row of technicianSummaries)
+   technicianChoices.add(new Option(row.technician_name+' · '+row.technician_document,row.technician_id));
+  if([...technicianChoices.options].some(option=>option.value===existingTechnician))
+   technicianChoices.value=existingTechnician;
   const choices=(id,rows,placeholder,label)=>{
    const sel=$(id),value=sel.value;
    sel.replaceChildren(new Option(placeholder,''));
@@ -155,6 +287,7 @@
    warehouseLabel);
   if(previousWarehouse)unavailableWarehouse(previousWarehouse,previousLabel.replace(/ · SIN SALDO DISPONIBLE$/,''));
   resetWarehouseNote();
+  showTab();
   listView();
  }
  function currentDoc(){
@@ -487,11 +620,15 @@
   }catch(err){toast(err.message,true);}
  }
  function wire(){
-  $('dispatch-search').addEventListener('input',listView);
-  $('dispatch-filter').addEventListener('change',listView);
+  $('dispatch-search').addEventListener('input',()=>{pageIndex=0;listView();});
+  $('dispatch-filter').addEventListener('change',()=>{pageIndex=0;listView();});
+  $('dispatch-technician-filter').addEventListener('change',()=>{pageIndex=0;listView();});
+  $('dispatch-date-from').addEventListener('change',()=>{pageIndex=0;listView();});
+  $('dispatch-date-to').addEventListener('change',()=>{pageIndex=0;listView();});
+  $('dispatch-page-prev').addEventListener('click',()=>{pageIndex=Math.max(0,pageIndex-1);listView();});
+  $('dispatch-page-next').addEventListener('click',()=>{pageIndex++;listView();});
   $('dispatch-stock-search').addEventListener('input',renderStock);
   $('dispatch-new').addEventListener('click',()=>void begin('manual'));
-  $('dispatch-excel').addEventListener('click',()=>void begin('excel'));
   $('dispatch-back').addEventListener('click',()=>void home());
   $('dispatch-detail-back').addEventListener('click',()=>void home());
   $('dispatch-change-tech').addEventListener('click',()=>setStep(1));
@@ -509,9 +646,8 @@
   document.querySelectorAll('#dispatch-wizard .ingress-step').forEach(btn=>
    btn.addEventListener('click',()=>{const target=Number(btn.dataset.step);if(target<step)setStep(target);}));
   document.querySelectorAll('.dispatch-tab').forEach(btn=>btn.addEventListener('click',()=>{
-   activeTab=btn.dataset.tab;
-   document.querySelectorAll('.dispatch-tab').forEach(x=>x.classList.toggle('current',x===btn));
-   listView();
+   activeTab=btn.dataset.tab;pageIndex=0;
+   showTab();listView();
   }));
   window.addEventListener('beforeunload',e=>{
    if(dirty&&!$('dispatch-wizard').hidden){e.preventDefault();e.returnValue='';}

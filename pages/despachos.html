@@ -91,28 +91,39 @@
     <div class="dispatch-dashboard">
       <div class="income-panel dispatch-board">
         <div class="dispatch-tabs" role="tablist" aria-label="Vistas de despachos">
-          <button class="dispatch-tab current" data-tab="recent" type="button">☷ &nbsp; Movimientos recientes</button>
-          <button class="dispatch-tab" data-tab="tech" type="button">♙ &nbsp; Asignaciones por técnico</button>
-          <button class="dispatch-tab" data-tab="active" type="button">◇ &nbsp; Equipos en uso</button>
-          <button class="dispatch-tab" data-tab="history" type="button">◴ &nbsp; Histórico de despachos</button>
+          <button class="dispatch-tab current" role="tab" aria-selected="true" data-tab="recent" type="button">☷ &nbsp; Movimientos recientes</button>
+          <button class="dispatch-tab" role="tab" aria-selected="false" data-tab="tech" type="button">♙ &nbsp; Asignaciones por técnico</button>
+          <button class="dispatch-tab" role="tab" aria-selected="false" data-tab="active" type="button">◇ &nbsp; Equipos en uso</button>
+          <button class="dispatch-tab" role="tab" aria-selected="false" data-tab="history" type="button">◴ &nbsp; Histórico de despachos</button>
         </div>
+        <p class="dispatch-view-caption" id="dispatch-view-caption">Los últimos movimientos de asignación y sus borradores.</p>
         <div class="ingress-filterbar dispatch-filters">
-          <label class="ingress-search">⌕ <input id="dispatch-search" type="search" placeholder="Buscar por referencia, técnico o SAP..." autocomplete="off"></label>
-          <label>Estado <select id="dispatch-filter"><option value="">Todos</option><option value="BORRADOR">Borradores</option><option value="DESPACHADO">Despachados</option></select></label>
+          <label class="ingress-search">⌕ <input id="dispatch-search" type="search" placeholder="Buscar por referencia o técnico..." autocomplete="off"></label>
+          <label id="dispatch-state-control">Estado <select id="dispatch-filter"><option value="">Todos</option><option value="BORRADOR">Borradores</option><option value="DESPACHADO">Despachados</option></select></label>
+          <label id="dispatch-technician-control" hidden>Técnico <select id="dispatch-technician-filter"><option value="">Todos</option></select></label>
+          <label id="dispatch-date-from-control" hidden>Desde <input type="date" id="dispatch-date-from" aria-label="Fecha desde"></label>
+          <label id="dispatch-date-to-control" hidden>Hasta <input type="date" id="dispatch-date-to" aria-label="Fecha hasta"></label>
           <span id="dispatch-result-count" class="ingress-table-count">0 movimientos</span>
         </div>
-        <div class="ingress-table-wrap dispatch-list-wrap">
-          <table class="ingress-table"><thead><tr><th>Referencia</th><th>Fecha</th><th>Técnico</th><th>Ítems</th><th>Unidades</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <div class="ingress-table-wrap dispatch-list-wrap" role="tabpanel" aria-live="polite">
+          <table class="ingress-table"><thead id="dispatch-list-head"><tr><th>Referencia</th><th>Fecha</th><th>Técnico</th><th>Ítems</th><th>Unidades</th><th>Estado</th><th>Acciones</th></tr></thead>
             <tbody id="dispatch-list"></tbody></table>
-          <p class="ingress-empty" id="dispatch-no-results" hidden>No hay despachos con estos filtros.</p>
+          <p class="ingress-empty dispatch-tab-empty" id="dispatch-no-results" hidden>No hay movimientos con estos filtros.</p>
+        </div>
+        <div class="dispatch-table-footer">
+          <span id="dispatch-page-caption" class="dispatch-page-caption">Vista reciente</span>
+          <div class="dispatch-pagination">
+            <button id="dispatch-page-prev" type="button" class="ingress-row-button" aria-label="Página anterior">‹</button>
+            <span id="dispatch-page-number" aria-live="polite">1 / 1</span>
+            <button id="dispatch-page-next" type="button" class="ingress-row-button" aria-label="Página siguiente">›</button>
+          </div>
         </div>
       </div>
       <aside class="dispatch-aside">
         <div class="income-panel dispatch-action-panel">
           <h3><span class="dispatch-small-icon">ϟ</span> Acciones rápidas</h3>
           <button class="income-button primary" id="dispatch-new" type="button">＋ Nuevo despacho a técnico</button>
-          <button class="income-button ghost" id="dispatch-excel" type="button">⇧ Cargar despachos desde Excel</button>
-          <button class="income-button secondary" type="button" disabled title="Disponible cuando se habilite el módulo Devoluciones">↶ Registrar devolución · próximamente</button>
+          <p class="dispatch-action-note">Para asignar varios equipos a un mismo técnico puedes seleccionarlos o cargar su Excel desde el paso 2 del nuevo despacho.</p>
         </div>
         <div class="income-panel dispatch-chart-panel">
           <h3><span class="dispatch-small-icon">▣</span> Equipos por estado</h3>
