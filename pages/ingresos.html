@@ -150,7 +150,7 @@
        </div>
        <div id="ingress-step-2" class="ingress-step-view" hidden>
         <div class="income-eyebrow">PASO 2 DE 4</div><h2>Ítems</h2>
-        <p class="income-subtitle">Registra un serial por unidad (cantidad 1), incluso si es un identificador interno único. Para SAP sin perfil también se admite control por cantidad cuando no hay serial.</p>
+        <p class="income-subtitle">Indica el lote y el estado de recepción por ítem. Cada serial identifica una unidad (cantidad 1). Al registrar, el estado físico será BUENO y la disponibilidad DISPONIBLE automáticamente.</p>
         <div class="ingress-item-tools">
           <button type="button" id="ing-item-add" class="income-button primary small">＋ Agregar ítem</button>
           <button type="button" id="ing-item-import" class="income-button secondary small">Cargar desde Excel</button>
@@ -158,7 +158,7 @@
           <input type="file" id="ing-item-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         </div>
         <div class="ingress-table-wrap ingress-item-table-wrap">
-         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Observaciones (opcional)</th><th>Estado</th><th></th></tr></thead><tbody id="ing-item-table"></tbody></table>
+         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Lote *</th><th>Estado de recepción *</th><th>Observaciones (opcional)</th><th>Estado</th><th></th></tr></thead><tbody id="ing-item-table"></tbody></table>
         </div>
         <datalist id="ing-sap-list"></datalist>
         <p class="income-small-note" id="ing-item-note">Selecciona un SAP de la maestra. Los ítems pueden quedar incompletos mientras sean borrador.</p>
@@ -173,7 +173,7 @@
          <h3>Controles del ingreso</h3><div class="ingress-check-grid">
          <span>✓ Origen ALIADO</span><span>✓ Destino PROPIA</span>
          <span>✓ SAP activo</span><span>✓ Seriales únicos</span>
-         <span>✓ Cantidad válida</span><span>✓ Registro completo</span>
+         <span>✓ Cantidad válida</span><span>✓ Lote y recepción</span><span>✓ Registro completo</span>
          </div></div>
        </div>
        <div id="ingress-step-4" class="ingress-step-view" hidden>
@@ -182,7 +182,7 @@
         <div class="ing-confirm-grid" id="ing-confirm-grid"></div>
         <h3 class="ingress-confirm-title">Resumen de ítems</h3>
         <div class="ingress-table-wrap ing-confirm-table"><table class="ingress-table"><thead><tr>
-          <th>SAP</th><th>Descripción</th><th>Serial</th><th>Cantidad</th></tr></thead>
+          <th>SAP</th><th>Descripción</th><th>Serial</th><th>Cantidad</th><th>Lote</th><th>Estado de recepción</th></tr></thead>
           <tbody id="ing-confirm-items"></tbody></table></div>
         <label class="ing-confirm-check"><input type="checkbox" id="ing-confirm-ack">
           He revisado los datos y autorizo registrar este ingreso.</label>

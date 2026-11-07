@@ -974,14 +974,19 @@ function ingNormalizeItems(items){
   const output=[];
   for(const record of items){
     if(!record||typeof record!=='object'||Array.isArray(record)||
-       !fieldsOf(record,['sap_code','serial','quantity','notes']))return null;
+       !fieldsOf(record,['sap_code','serial','quantity','lot','reception_state','notes']))return null;
     const sap_code=trimmed(record.sap_code,50).toUpperCase();
     const serial=trimmed(record.serial,100).toUpperCase();
     const notes=trimmed(record.notes,240);
+    const lot=trimmed(record.lot,30).toUpperCase();
+    const reception_state=trimmed(record.reception_state,30).toUpperCase();
     const quantity=Number(record.quantity);
     if(sap_code.length>50||serial.length>100||notes.length>240||
-       !Number.isInteger(quantity)||quantity>1000000||quantity< -1000000)return null;
-    output.push({id:crypto.randomUUID(),position:output.length+1,sap_code,serial,quantity,notes});
+       !Number.isInteger(quantity)||quantity>1000000||quantity< -1000000||
+       (lot!==''&&!['VALORADO','NOVALORADO'].includes(lot))||
+       (reception_state!==''&&!['NUEVO','REMANUFACTURADO'].includes(reception_state)))return null;
+    output.push({id:crypto.randomUUID(),position:output.length+1,sap_code,serial,quantity,
+      lot,reception_state,notes});
   }
   return output;
 }
@@ -996,7 +1001,7 @@ async function ingGet(db,id){
   ).bind(id).first();
   if(!document)return null;
   const list=await db.prepare(
-    "SELECT i.id,i.position,i.sap_code,i.serial,i.quantity,i.notes,"+
+    "SELECT i.id,i.position,i.sap_code,i.serial,i.quantity,i.lot,i.reception_state,i.physical_state,i.availability_state,i.notes,"+
     "s.description AS sap_description,s.serial_profile,s.unit,s.item_type "+
     "FROM ingress_items i LEFT JOIN master_sap_catalog s ON s.sap_code=i.sap_code "+
     "WHERE i.ingress_id=? ORDER BY i.position"
@@ -1040,6 +1045,12 @@ async function ingValidate(db,document,items){
     if(!Number.isInteger(item.quantity)||item.quantity<1){
       add('CANTIDAD_INVALIDA','Ítem '+n+': la cantidad debe ser un entero positivo.',2,index);
     }else unitCount+=item.quantity;
+    if(!['VALORADO','NOVALORADO'].includes(item.lot))
+      add('LOTE_INVALIDO','Ítem '+n+': selecciona el lote VALORADO o NOVALORADO.',2,index);
+    if(!['NUEVO','REMANUFACTURADO'].includes(item.reception_state))
+      add('ESTADO_RECEPCION_INVALIDO','Ítem '+n+': selecciona Nuevo o Remanufacturado.',2,index);
+    if(item.physical_state!=='BUENO'||item.availability_state!=='DISPONIBLE')
+      add('ESTADO_INICIAL_INVALIDO','Ítem '+n+': el estado inicial debe ser BUENO y DISPONIBLE.',2,index);
     const serial=String(item.serial||'').trim().toUpperCase();
     if(sap?.serial_profile==='CON PERFIL DE SERIE'&&
        (!serial||['SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(serial)))
@@ -1226,10 +1237,11 @@ async function ingresosHandler(request,env,user,path){
   ).bind(...values,user.id,id,'BORRADOR');
   const deleteItems=db.prepare('DELETE FROM ingress_items WHERE ingress_id=?').bind(id);
   const insertItems=db.prepare(
-    "INSERT INTO ingress_items(id,ingress_id,position,sap_code,serial,quantity,notes) "+
+    "INSERT INTO ingress_items(id,ingress_id,position,sap_code,serial,quantity,notes,lot,reception_state,physical_state,availability_state) "+
     "SELECT json_extract(value,'$.id'),?,json_extract(value,'$.position'),"+
     "json_extract(value,'$.sap_code'),json_extract(value,'$.serial'),"+
-    "json_extract(value,'$.quantity'),json_extract(value,'$.notes') "+
+    "json_extract(value,'$.quantity'),json_extract(value,'$.notes'),"+
+    "json_extract(value,'$.lot'),json_extract(value,'$.reception_state'),'BUENO','DISPONIBLE' "+
     "FROM json_each(?)"
   ).bind(id,itemRows);
   try{

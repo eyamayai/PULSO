@@ -141,6 +141,8 @@
     const sap=bySap.get(n(item.sap_code));
     const serial=n(item.serial),quantity=Number(item.quantity);
     if(!sap||!Number.isInteger(quantity)||quantity<1)return false;
+    if(!['VALORADO','NOVALORADO'].includes(n(item.lot))||
+       !['NUEVO','REMANUFACTURADO'].includes(n(item.reception_state)))return false;
     if(serial)return quantity===1&&(sap.serial_profile!=='CON PERFIL DE SERIE'||!['SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(serial));
     return sap.serial_profile==='SIN PERFIL DE SERIE';
   }
@@ -168,8 +170,16 @@
     tr.append(td);return td;
   }
   function itemField(item,key,index){
-    const field=document.createElement('input');
-    field.type=key==='quantity'?'number':'text';
+    const isSelect=key==='lot'||key==='reception_state';
+    const field=document.createElement(isSelect?'select':'input');
+    if(isSelect){
+      const options=key==='lot'
+        ?[['','Seleccionar lote...'],['VALORADO','VALORADO'],['NOVALORADO','NOVALORADO']]
+        :[['','Seleccionar estado...'],['NUEVO','Nuevo'],['REMANUFACTURADO','Remanufacturado']];
+      for(const [value,label] of options)field.add(new Option(label,value));
+      field.className='ingress-classification';
+      field.setAttribute('aria-label',(key==='lot'?'Lote':'Estado de recepción')+' ítem '+(index+1));
+    }else field.type=key==='quantity'?'number':'text';
     field.value=String(item[key]??'');
     field.disabled=status!=='BORRADOR';
     if(key==='sap_code'){
@@ -182,11 +192,11 @@
     } else if(key==='quantity'){
       field.className='quantity-input';field.min=0;field.step=1;field.max=1000000;
       field.setAttribute('aria-label','Cantidad ítem '+(index+1));
-    }else{field.maxLength=240;field.setAttribute('aria-label','Observaciones ítem '+(index+1));}
-    field.addEventListener('input',()=>{
+    }else if(key==='notes'){field.maxLength=240;field.setAttribute('aria-label','Observaciones ítem '+(index+1));}
+    field.addEventListener(isSelect?'change':'input',()=>{
       item[key]=key==='quantity'?(field.value===''?0:Number(field.value)):field.value;
       setDirty();
-      if(key==='sap_code'||key==='quantity'||key==='serial'){
+      if(key==='sap_code'||key==='quantity'||key==='serial'||isSelect){
         const tr=field.closest('tr');const sap=bySap.get(n(item.sap_code));
         const desc=tr.querySelector('.income-item-description');
         const profile=tr.querySelector('.income-item-profile');
@@ -217,6 +227,8 @@
       cell(tr,info);
       cell(tr,itemField(item,'serial',index));
       cell(tr,itemField(item,'quantity',index));
+      cell(tr,itemField(item,'lot',index));
+      cell(tr,itemField(item,'reception_state',index));
       cell(tr,itemField(item,'notes',index));
       const ok=itemComplete(item);
       cell(tr,elt('span',ok?'Completo':'Revisar',ok?'ingress-pill':'ingress-pill draft'));
@@ -275,6 +287,8 @@
       const tr=elt('tr');
       cell(tr,item.sap_code);cell(tr,bySap.get(n(item.sap_code))?.description||'Sin descripción');
       cell(tr,n(item.serial)||'Sin perfil de serie');cell(tr,item.quantity);
+      cell(tr,n(item.lot)||'Sin clasificar');
+      cell(tr,n(item.reception_state)||'Sin clasificar');
       tbody.append(tr);
     }
     const blocked=!validation?.valid || dirty;
@@ -351,7 +365,8 @@
       support={size:data.document.support_size||0,filename:data.document.support_filename||''};
       validation=data.validation;
       items=(data.items||[]).map(x=>({
-        sap_code:x.sap_code||'',serial:x.serial||'',quantity:x.quantity||0,notes:x.notes||''
+        sap_code:x.sap_code||'',serial:x.serial||'',quantity:x.quantity||0,
+        lot:x.lot||'',reception_state:x.reception_state||'',notes:x.notes||''
       }));
       setDoc(data.document);dirty=false;
       text('ingress-reference-label',data.document.reference||'Borrador · '+id.slice(0,8));
@@ -453,6 +468,8 @@
         {header:'Código SAP',key:'sap_code',width:22},
         {header:'Serial',key:'serial',width:35},
         {header:'Cantidad',key:'quantity',width:16},
+        {header:'Lote',key:'lot',width:20},
+        {header:'Estado de Recepción',key:'reception_state',width:26},
         {header:'Observaciones',key:'notes',width:43}
       ];
       const header=sheet.getRow(1);header.height=28;
@@ -461,7 +478,16 @@
         cell.font={name:'Aptos',size:11,color:{argb:'FFFFFFFF'},bold:true};
         cell.alignment={vertical:'middle'};
       });
-      sheet.autoFilter={from:{row:1,column:1},to:{row:1,column:4}};
+      sheet.autoFilter={from:{row:1,column:1},to:{row:1,column:6}};
+      const dropdown=(values,title)=>({
+        type:'list',allowBlank:false,formulae:['"'+values.join(',')+'"'],
+        showErrorMessage:true,errorStyle:'error',errorTitle:'Valor no válido',
+        error:'Selecciona una opción de la lista de '+title+'.'
+      });
+      for(let row=2;row<=501;row++){
+        sheet.getCell('D'+row).dataValidation=dropdown(['VALORADO','NOVALORADO'],'Lote');
+        sheet.getCell('E'+row).dataValidation=dropdown(['Nuevo','Remanufacturado'],'Estado de recepción');
+      }
       sheet.getColumn('sap_code').numFmt='@';
       sheet.getColumn('serial').numFmt='@';
       sheet.getColumn('quantity').numFmt='0';
@@ -482,7 +508,7 @@
       await workbook.xlsx.load(await file.arrayBuffer());
       const sheet=workbook.worksheets[0];
       if(!sheet)throw new Error('El Excel no tiene hojas.');
-      const headers=['Código SAP','Serial','Cantidad','Observaciones'];
+      const headers=['Código SAP','Serial','Cantidad','Lote','Estado de Recepción','Observaciones'];
       const val=x=>String(x?.text??x?.result??x??'').trim();
       for(let i=0;i<headers.length;i++)
         if(val(sheet.getRow(1).getCell(i+1).value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()!==headers[i].normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase())
@@ -490,13 +516,14 @@
       const parsed=[];const issues=[];
       for(let i=2;i<=sheet.rowCount;i++){
         const row=sheet.getRow(i);
-        const codes=Array.from({length:4},(_,k)=>val(row.getCell(k+1).value));
+        const codes=Array.from({length:6},(_,k)=>val(row.getCell(k+1).value));
         if(codes.every(v=>!v))continue;
         const quantity=Number(codes[2]);
         if(!Number.isInteger(quantity)||quantity<=0||quantity>1000000){
           issues.push('Fila '+i+': cantidad inválida.');continue;
         }
-        parsed.push({sap_code:codes[0],serial:codes[1],quantity,notes:codes[3]});
+        parsed.push({sap_code:codes[0],serial:codes[1],quantity,
+          lot:codes[3].toUpperCase(),reception_state:codes[4].toUpperCase(),notes:codes[5]});
       }
       if(!parsed.length)throw new Error('El archivo no contiene ítems.');
       if(parsed.length+items.length>500)throw new Error('Máximo 500 ítems por ingreso.');
@@ -519,7 +546,7 @@
     $('ing-confirm-ack').addEventListener('change',renderConfirmation);
     $('ing-item-add').addEventListener('click',()=>{
       if(status==='BORRADOR'&&items.length<500){
-        items.push({sap_code:'',serial:'',quantity:1,notes:''});
+        items.push({sap_code:'',serial:'',quantity:1,lot:'',reception_state:'',notes:''});
         setDirty();renderItems();
         $('ing-item-table').lastElementChild?.querySelector('.sap-input')?.focus();
       }

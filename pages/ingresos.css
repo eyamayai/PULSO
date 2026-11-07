@@ -196,3 +196,17 @@
  .ing-confirm-grid,.ingress-check-grid{grid-template-columns:minmax(0,1fr)}
  .income-upload-description{flex:1 1 180px}
 }
+
+/* Clasificación por ítem, desplazamiento horizontal sin comprimir campos. */
+.ingress-item-table-wrap .ingress-table{min-width:1260px}
+.ingress-item-table-wrap select.ingress-classification{
+  display:block;min-width:145px;width:100%;height:36px;padding:5px 8px;
+  border:1px solid #d1e2d7;border-radius:8px;background:#fafffb;
+  color:#16493d;font-size:11px;font-family:inherit
+}
+.ingress-item-table-wrap select.ingress-classification:disabled{
+  background:#eff4f0;color:#44695a;opacity:1
+}
+.ingress-item-table-wrap td:nth-child(6){min-width:155px}
+.ingress-item-table-wrap td:nth-child(7){min-width:172px}
+.ing-confirm-table .ingress-table{min-width:830px}

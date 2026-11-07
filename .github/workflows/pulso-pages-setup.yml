@@ -15,6 +15,8 @@ on:
       - 'cloudflare/migrations/0008_departamentos_aliados.sql'
       - 'cloudflare/migrations/0009_ingresos.sql'
       - 'cloudflare/migrations/0010_seriales_internos_ingresos.sql'
+      - 'cloudflare/migrations/0011_clasificacion_estados_ingresos.sql'
+      - 'cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -55,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -87,6 +89,8 @@ jobs:
           grep -q 'id="ing-confirm"' pages/ingresos.html
           grep -q 'sheet.autoFilter' pages/ingresos.js
           grep -q 'ySplit:1' pages/ingresos.js
+          grep -q "header:'Lote'" pages/ingresos.js
+          grep -q "header:'Estado de Recepción'" pages/ingresos.js
           grep -q 'href="/ingresos"' pages/inicio.html
           grep -q 'href="/ingresos"' pages/maestras.html
           grep -q "CREATE TRIGGER IF NOT EXISTS ingress_ready_guard" cloudflare/migrations/0009_ingresos.sql
@@ -168,6 +172,14 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0009_ingresos.sql
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0010_seriales_internos_ingresos.sql
+          # Las columnas se crean una única vez. Los triggers se actualizan en cada despliegue.
+          INGRESS_SCHEMA=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='ingress_items'")
+          if ! printf '%s' "$INGRESS_SCHEMA" | grep -q 'availability_state'; then
+            npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0011_clasificacion_estados_ingresos.sql
+          else
+            echo "La clasificación y los estados de recepción ya están instalados"
+          fi
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql
 
       - name: Preparar administrador inicial si fue autorizado
         env:

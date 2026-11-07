@@ -13,9 +13,11 @@ const sql7=fs.readFileSync(new URL('../cloudflare/migrations/0007_bodegas_aliado
 const sql8=fs.readFileSync(new URL('../cloudflare/migrations/0008_departamentos_aliados.sql',import.meta.url),'utf8');
 const sql9=fs.readFileSync(new URL('../cloudflare/migrations/0009_ingresos.sql',import.meta.url),'utf8');
 const sql10=fs.readFileSync(new URL('../cloudflare/migrations/0010_seriales_internos_ingresos.sql',import.meta.url),'utf8');
+const sql11=fs.readFileSync(new URL('../cloudflare/migrations/0011_clasificacion_estados_ingresos.sql',import.meta.url),'utf8');
+const sql12=fs.readFileSync(new URL('../cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);}
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -743,8 +745,8 @@ function ingPayload(f){
   document_date:'2026-11-06',received_date:'2026-11-07',
   source_id:f.source,destination_id:f.destination,notes:'PDF opcional'
  },items:[
-  {sap_code:f.sapSerial,serial:'EQ-001',quantity:1,notes:''},
-  {sap_code:f.sapBulk,serial:'',quantity:5,notes:''}
+  {sap_code:f.sapSerial,serial:'EQ-001',quantity:1,lot:'VALORADO',reception_state:'NUEVO',notes:''},
+  {sap_code:f.sapBulk,serial:'',quantity:5,lot:'NOVALORADO',reception_state:'REMANUFACTURADO',notes:''}
  ]};
 }
 test('Ingresos: acceso de administrador y borradores sin movimientos',async()=>{
@@ -804,9 +806,9 @@ test('Ingresos: SAP sin perfil puede registrar serial interno único sin sumar i
   const id=await ingNew(x,cookie),payload=ingPayload(f);
   payload.document.notes='';
   payload.items=[
-    {sap_code:f.sapSerial,serial:'EQ-002',quantity:1,notes:''},
-    {sap_code:f.sapBulk,serial:'INT-SAP10002-0001',quantity:1,notes:''},
-    {sap_code:f.sapBulk,serial:'INT-SAP10002-0002',quantity:1,notes:''}
+    {sap_code:f.sapSerial,serial:'EQ-002',quantity:1,lot:'VALORADO',reception_state:'NUEVO',notes:''},
+    {sap_code:f.sapBulk,serial:'INT-SAP10002-0001',quantity:1,lot:'NOVALORADO',reception_state:'REMANUFACTURADO',notes:''},
+    {sap_code:f.sapBulk,serial:'INT-SAP10002-0002',quantity:1,lot:'NOVALORADO',reception_state:'REMANUFACTURADO',notes:''}
   ];
   const saved=await ingApi(x,cookie,'/'+id,'PATCH',payload);
   assert.equal(saved.status,200);
@@ -822,15 +824,15 @@ test('Ingresos: SAP sin perfil puede registrar serial interno único sin sumar i
 test('Ingresos: identificador interno duplicado o con cantidad mayor de uno bloquea el registro',async()=>{
   const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
   const id=await ingNew(x,cookie),payload=ingPayload(f);
-  payload.items=[{sap_code:f.sapBulk,serial:'INT-MATERIAL-01',quantity:2,notes:''}];
+  payload.items=[{sap_code:f.sapBulk,serial:'INT-MATERIAL-01',quantity:2,lot:'VALORADO',reception_state:'NUEVO',notes:''}];
   let result=await ingApi(x,cookie,'/'+id,'PATCH',payload);
   assert.equal(result.status,200);
   assert.ok((await result.json()).validation.errors.some(x=>x.code==='CANTIDAD_SERIAL'));
   assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
   const actor=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
   assert.throws(()=>x.database.prepare("UPDATE ingress_documents SET status='REGISTRADO',registered_by=? WHERE id=?").run(actor,id),/CANTIDAD_SERIAL/);
-  payload.items=[{sap_code:f.sapBulk,serial:'INT-MATERIAL-01',quantity:1,notes:''},
-                 {sap_code:f.sapBulk,serial:'int-material-01',quantity:1,notes:''}];
+  payload.items=[{sap_code:f.sapBulk,serial:'INT-MATERIAL-01',quantity:1,lot:'VALORADO',reception_state:'NUEVO',notes:''},
+                 {sap_code:f.sapBulk,serial:'int-material-01',quantity:1,lot:'VALORADO',reception_state:'NUEVO',notes:''}];
   result=await ingApi(x,cookie,'/'+id,'PATCH',payload);
   assert.ok((await result.json()).validation.errors.some(x=>x.code==='SERIAL_REPETIDO'));
   assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
@@ -843,6 +845,48 @@ test('Ingresos: identificador interno duplicado o con cantidad mayor de uno bloq
   assert.equal(denied.status,422);
   assert.ok((await denied.json()).validation.errors.some(x=>x.code==='SERIAL_EXISTENTE'));
   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
+});
+
+test('Ingresos: exige lote y recepción válidos antes de registrar, incluso por SQL directo',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie),payload=ingPayload(f);
+ payload.items[0].lot='';
+ payload.items[1].reception_state='';
+ const saved=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal(saved.status,200);
+ const v=(await saved.json()).validation;
+ assert.equal(v.valid,false);
+ assert.ok(v.errors.some(e=>e.code==='LOTE_INVALIDO'));
+ assert.ok(v.errors.some(e=>e.code==='ESTADO_RECEPCION_INVALIDO'));
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
+ const actor=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ assert.throws(()=>x.database.prepare("UPDATE ingress_documents SET status='REGISTRADO',registered_by=? WHERE id=?").run(actor,id),/LOTE_INVALIDO/);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,0);
+ payload.items[0].lot='VALORADO';payload.items[1].reception_state='NUEVO';
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',payload)).status,200);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+});
+test('Ingresos: registra lote, recepción y estados automáticos por unidad, sin modificar registros anteriores',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x),id=await ingNew(x,cookie);
+ const payload=ingPayload(f);payload.document.notes='';
+ const saved=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal((await saved.json()).validation.valid,true);
+ const lines=x.database.prepare('SELECT lot,reception_state,physical_state,availability_state,quantity FROM ingress_items WHERE ingress_id=? ORDER BY position').all(id);
+ assert.deepEqual(lines,[
+  {lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',availability_state:'DISPONIBLE',quantity:1},
+  {lot:'NOVALORADO',reception_state:'REMANUFACTURADO',physical_state:'BUENO',availability_state:'DISPONIBLE',quantity:5}
+ ]);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const serial=x.database.prepare('SELECT lot,reception_state,physical_state,status FROM inventory_serials WHERE serial=?').get('EQ-001');
+ assert.deepEqual(serial,{lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',status:'DISPONIBLE'});
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+ assert.equal(x.database.prepare('SELECT notes FROM ingress_documents WHERE id=?').get(id).notes,'');
+});
+test('Migración de clasificación: conserva el historial sin inventar lotes ni estados históricos',()=>{
+ const x=setup();
+ const columns=x.database.prepare("SELECT name FROM pragma_table_info('ingress_items')").all().map(x=>x.name);
+ assert.ok(['lot','reception_state','physical_state','availability_state'].every(x=>columns.includes(x)));
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,0);
 });
 test('Ingresos: origen y destino deben corresponder a ALIADO y PROPIA activos',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
@@ -872,7 +916,7 @@ test('Ingresos: integridad SQL bloquea serial ausente incluso saltando la API',a
 test('Ingresos: no permite más de 500 ítems ni guardar desde otro origen',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
  const id=await ingNew(x,cookie),payload=ingPayload(f);
- payload.items=Array.from({length:501},()=>({sap_code:f.sapBulk,serial:'',quantity:1,notes:''}));
+ payload.items=Array.from({length:501},()=>({sap_code:f.sapBulk,serial:'',quantity:1,lot:'VALORADO',reception_state:'NUEVO',notes:''}));
  assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',payload)).status,400);
  assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f),'https://externo.example')).status,403);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_items').get().n,0);
