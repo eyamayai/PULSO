@@ -19,6 +19,25 @@ if(masters.status!==200)throw new Error('El administrador no puede abrir Maestra
 const mastersHtml=await masters.text();
 if(!mastersHtml.includes('id="tab-personal"')||!mastersHtml.includes('id="tab-catalogo"')||!mastersHtml.includes('id="tab-usuarios"')||!mastersHtml.includes('id="tab-bodegas"')||!mastersHtml.includes('bodegas.js'))
   throw new Error('La nueva pantalla de Maestras no es la versión publicada');
+const incomePage=await fetch(origin+'/ingresos',{redirect:'manual',headers:{Cookie:cookie}});
+const incomeHtml=await incomePage.text();
+if(incomePage.status!==200||!incomeHtml.includes('id="ingress-wizard"')||
+   !incomeHtml.includes('src="/ingresos.js"')||
+   !incomeHtml.includes('id="ing-confirm"'))
+  throw new Error('La página Ingresos no se publicó o no carga los cuatro pasos');
+const incomeList=await fetch(origin+'/api/ingresos',{redirect:'manual',headers:{Cookie:cookie}});
+const incomeListData=await incomeList.json().catch(()=>({}));
+if(incomeList.status!==200||!incomeListData.ok||!Array.isArray(incomeListData.items))
+  throw new Error('No se pueden listar ingresos desde D1 con sesión Administrador');
+const incomeCatalogs=await fetch(origin+'/api/ingresos/catalogos',{redirect:'manual',headers:{Cookie:cookie}});
+const incomeCatalogData=await incomeCatalogs.json().catch(()=>({}));
+if(incomeCatalogs.status!==200||!incomeCatalogData.ok||
+   !Array.isArray(incomeCatalogData.warehouses)||!Array.isArray(incomeCatalogData.catalog))
+  throw new Error('No se pudieron consultar las maestras de Ingresos desde D1');
+if(incomeCatalogData.warehouses.some(w=>!['PROPIA','ALIADO'].includes(w.administration)))
+  throw new Error('La API de Ingresos entregó una administración inválida');
+const anonIncomes=await fetch(origin+'/api/ingresos',{redirect:'manual'});
+if(anonIncomes.status!==401)throw new Error('Ingresos es accesible sin autenticación');
 for(const endpoint of ['/api/maestras/personal','/api/maestras/catalogo']){
   const result=await fetch(origin+endpoint,{redirect:'manual',headers:{Cookie:cookie}});
   if(result.status!==200)throw new Error('El administrador no puede consultar '+endpoint+'; HTTP '+result.status);
