@@ -88,3 +88,27 @@ a.module-tile{color:#0c3437;cursor:pointer}
 a.module-tile:hover,a.module-tile:focus-visible{box-shadow:0 0 0 2px #ffa52e,0 9px 24px #071a1b55}
 @media(max-width:1400px){.brand-original{min-height:67px;margin:0 4px 9px}.brand-original img{height:49px}}
 @media(max-width:700px){.brand-original{padding:5px;margin:0 1px 10px;min-height:52px}.brand-original img{width:42px;height:42px}.brand-original picture{width:46px}}
+
+
+/* Adaptación a portátiles, pantallas pequeñas y zoom del navegador. */
+.app{height:100dvh;min-height:0;overflow:hidden}
+.app-main,.sidebar{min-width:0;min-height:0}
+.sidebar-modules{min-width:0;display:flex;flex-direction:column;gap:1px}
+.side-nav{flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-width:thin;scrollbar-color:#7db4a5 transparent}
+.workspace{overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#73ae9a transparent;scroll-padding-top:15px}
+.side-nav::-webkit-scrollbar,.workspace::-webkit-scrollbar{display:block;width:8px;height:8px}
+.side-nav::-webkit-scrollbar-thumb,.workspace::-webkit-scrollbar-thumb{background:#7cae9a80;border-radius:10px}
+.side-nav::-webkit-scrollbar-track,.workspace::-webkit-scrollbar-track{background:transparent}
+.side-link{min-width:0;flex:none}
+@media(max-width:1080px){
+ .topbar{min-width:0}
+ .top-right{flex:none}
+ .session-name{max-width:100px}
+}
+@media(max-width:700px){
+ .search{min-width:0;flex:1 1 auto}
+ .topbar{gap:7px}
+ .top-right{gap:5px}
+ .sidebar{padding-bottom:8px}
+ .side-nav{width:100%}
+}

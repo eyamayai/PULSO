@@ -161,3 +161,49 @@
 .warehouse-actions button.deactivate{color:#976043}
 #warehouse-error[hidden]{display:none}
 @media(max-width:850px){.warehouses-view .user-view-toolbar{flex-wrap:wrap}}
+
+
+/* Barras adaptables: no cortar botones, pestañas ni tablas en portátiles. */
+.master-layout,.master-panel{min-width:0;max-width:100%}
+.master-topline{flex-wrap:wrap;align-items:stretch}
+.master-tabs{flex:1 1 580px;min-width:0;flex-wrap:wrap;align-items:stretch;gap:7px}
+.master-tab{min-height:46px;line-height:1.25;white-space:normal;text-align:center}
+.master-top-actions{min-width:0;flex:0 1 auto;display:flex;justify-content:flex-end;align-items:stretch;flex-wrap:wrap;gap:8px}
+.master-top-actions>button{height:46px;min-height:46px;max-width:100%;padding:7px 12px;line-height:1.25;white-space:normal}
+.master-secondary,.master-primary{box-sizing:border-box}
+.master-toolbar,.user-view-toolbar{min-width:0;flex-wrap:wrap}
+.master-search{min-width:180px;flex:1 1 260px}
+.master-filter-label{min-width:0}
+.master-table-scroll,.users-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#83ab9d #eef5f0}
+.record-dialog{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}
+@media(max-width:1440px){
+ .master-tabs{flex:1 1 100%;width:100%}
+ .master-tab{flex:1 1 22%}
+ .master-top-actions{width:100%;flex:1 1 100%;justify-content:flex-end}
+}
+@media(max-width:900px){
+ .master-layout{padding:16px;gap:16px}
+ .master-topline{padding:14px;gap:12px}
+ .master-toolbar,.user-view-toolbar{gap:10px;padding:13px 14px}
+ .master-top-actions>button{flex:1 1 145px}
+ .master-total{margin-left:0}
+}
+@media(max-width:800px){
+ .master-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+ .master-tab{min-width:0;width:100%;padding:9px 8px}
+ .master-top-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .master-top-actions>button{width:100%;height:auto;min-height:46px}
+ .master-search{flex-basis:100%;max-width:none}
+ .master-filter-label select{min-width:0}
+ .master-table-scroll,.users-table-scroll{scrollbar-width:thin}
+}
+@media(max-width:550px){
+ .master-layout{padding:12px;gap:12px}
+ .master-tab{font-size:11px;min-height:52px}
+ .master-top-actions{grid-template-columns:1fr}
+ .master-toolbar,.user-view-toolbar{align-items:stretch}
+ .master-filter-label{flex:1 1 100%;justify-content:space-between}
+ .master-filter-label select{flex:1 1 auto;max-width:220px}
+ .dialog-actions{flex-wrap:wrap}
+ .dialog-actions button{flex:1}
+}

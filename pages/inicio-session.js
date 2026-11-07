@@ -16,3 +16,16 @@ logoutButton?.addEventListener('click',async()=>{
   try{await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});}finally{window.location.replace('/main');}
 });
 void session();
+
+
+// Determina el único módulo activo a partir de la URL real de cada pantalla.
+(() => {
+  const route = pathname => pathname.replace(/\/+$/, '').replace(/\.html$/, '') || '/inicio';
+  const activePath = route(window.location.pathname);
+  document.querySelectorAll('.side-nav a.side-link').forEach(link => {
+    const selected = route(new URL(link.href, window.location.href).pathname) === activePath;
+    link.classList.toggle('current', selected);
+    if (selected) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+})();

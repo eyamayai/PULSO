@@ -144,3 +144,55 @@
 @media(max-width:1040px){.ingress-layout{grid-template-columns:minmax(0,1fr)}.ingress-side{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.side-card{min-width:0}.ingress-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.side-summary div{display:block}.side-summary dd{max-width:none;text-align:left;margin-top:3px}}
 @media(max-width:760px){.income-shell{padding:16px 12px;gap:14px}.income-project{display:none}.income-heading h1{font-size:30px}.ingress-step{min-height:45px;flex-direction:column;gap:3px;font-size:9px}.ingress-step span{width:26px;height:26px;font-size:12px}.ingress-steps{padding:8px 5px}.ingress-main-card{padding:18px 14px;min-height:auto}.income-form-grid{grid-template-columns:minmax(0,1fr);gap:12px}.span2{grid-column:auto}.ingress-side{grid-template-columns:minmax(0,1fr)}.ingress-filterbar{flex-wrap:wrap}.ingress-filterbar .ingress-search{width:100%}.income-upload{flex-wrap:wrap}.income-home-actions{align-items:flex-start}.ingress-actions{flex-wrap:wrap}.ingress-actions-right{margin-left:auto}.ingress-kpi{min-height:73px;padding:9px;gap:8px}.ingress-kpi-icon{width:33px;height:33px;font-size:16px}.ingress-kpi strong{font-size:20px}.ingress-kpi small{font-size:10px}}
 @media(prefers-reduced-motion:reduce){.ing-side-progress span{transition:none}}
+
+
+/* Ingresos: formulario legible, pasos y tablas desplazables a cualquier escala. */
+.income-shell,.ingress-layout,.ingress-side,.ingress-main-card,.side-card{min-width:0;max-width:100%}
+.income-button{min-height:44px;box-sizing:border-box;line-height:1.25}
+.ingress-actions-right,.ingress-item-tools{flex-wrap:wrap}
+.ingress-table-wrap,.ingress-item-table-wrap,.ing-confirm-table{max-width:100%;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#83ab9d #eef5f0}
+.ingress-item-table-wrap{max-height:342px;min-height:190px}
+.ing-confirm-table{max-height:240px}
+.income-upload input[type=file]{max-width:100%}
+@media(max-width:1500px){
+ .ingress-layout{grid-template-columns:minmax(0,1fr)}
+ .ingress-side{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}
+ .side-summary div{display:block}
+ .side-summary dd{max-width:none;text-align:left;margin-top:4px}
+ .side-card{min-width:0}
+ .ingress-main-card{min-height:0}
+}
+@media(max-width:900px){
+ .income-shell{padding:16px;gap:15px}
+ .income-heading,.income-home-actions{flex-wrap:wrap}
+ .ingress-filterbar{flex-wrap:wrap;gap:10px}
+ .ingress-filterbar .ingress-search{width:100%;flex:1 1 240px}
+ .ingress-table-count{margin-left:0}
+ .ingress-steps{gap:6px}
+ .ingress-step{gap:7px;font-size:11px}
+ .ingress-side{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .ingress-side .side-alert{grid-column:1/-1}
+}
+@media(max-width:760px){
+ .ingress-side{grid-template-columns:minmax(0,1fr)}
+ .ingress-side .side-alert{grid-column:auto}
+ .income-upload{min-width:0}
+ .ingress-back-heading{flex-wrap:wrap}
+ .ingress-save-indicator{margin-left:0}
+}
+@media(max-width:600px){
+ .income-shell{padding:13px 11px}
+ .income-title{min-width:0}
+ .income-title h1{font-size:28px}
+ .income-home-actions .income-button{width:100%}
+ .ingress-steps{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+ .ingress-step{flex-direction:row;gap:7px;min-height:43px;font-size:10px}
+ .ingress-step span{width:25px;height:25px}
+ .ingress-main-card{padding:15px 12px;min-height:0}
+ .ingress-actions{flex-direction:column;align-items:stretch}
+ .ingress-actions-right{margin-left:0;justify-content:stretch}
+ .ingress-actions-right .income-button{flex:1 1 110px}
+ .ingress-item-tools .income-button{flex:1 1 135px;white-space:normal}
+ .ing-confirm-grid,.ingress-check-grid{grid-template-columns:minmax(0,1fr)}
+ .income-upload-description{flex:1 1 180px}
+}
