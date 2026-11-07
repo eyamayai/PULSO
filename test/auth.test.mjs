@@ -872,13 +872,13 @@ test('Ingresos: registra lote, recepción y estados automáticos por unidad, sin
  const saved=await ingApi(x,cookie,'/'+id,'PATCH',payload);
  assert.equal((await saved.json()).validation.valid,true);
  const lines=x.database.prepare('SELECT lot,reception_state,physical_state,availability_state,quantity FROM ingress_items WHERE ingress_id=? ORDER BY position').all(id);
- assert.deepEqual(lines,[
-  {lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',availability_state:'DISPONIBLE',quantity:1},
-  {lot:'NOVALORADO',reception_state:'REMANUFACTURADO',physical_state:'BUENO',availability_state:'DISPONIBLE',quantity:5}
+ assert.deepEqual(lines.map(x=>[x.lot,x.reception_state,x.physical_state,x.availability_state,x.quantity]),[
+  ['VALORADO','NUEVO','BUENO','DISPONIBLE',1],
+  ['NOVALORADO','REMANUFACTURADO','BUENO','DISPONIBLE',5]
  ]);
  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
  const serial=x.database.prepare('SELECT lot,reception_state,physical_state,status FROM inventory_serials WHERE serial=?').get('EQ-001');
- assert.deepEqual(serial,{lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',status:'DISPONIBLE'});
+ assert.deepEqual([serial.lot,serial.reception_state,serial.physical_state,serial.status],['VALORADO','NUEVO','BUENO','DISPONIBLE']);
  assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
  assert.equal(x.database.prepare('SELECT notes FROM ingress_documents WHERE id=?').get(id).notes,'');
 });
