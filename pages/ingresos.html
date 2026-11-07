@@ -150,7 +150,7 @@
        </div>
        <div id="ingress-step-2" class="ingress-step-view" hidden>
         <div class="income-eyebrow">PASO 2 DE 4</div><h2>Ítems</h2>
-        <p class="income-subtitle">Cada serial corresponde a una fila. Para códigos sin perfil de serie, registra la cantidad.</p>
+        <p class="income-subtitle">Registra un serial por unidad (cantidad 1), incluso si es un identificador interno único. Para SAP sin perfil también se admite control por cantidad cuando no hay serial.</p>
         <div class="ingress-item-tools">
           <button type="button" id="ing-item-add" class="income-button primary small">＋ Agregar ítem</button>
           <button type="button" id="ing-item-import" class="income-button secondary small">Cargar desde Excel</button>
@@ -158,7 +158,7 @@
           <input type="file" id="ing-item-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         </div>
         <div class="ingress-table-wrap ingress-item-table-wrap">
-         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Observaciones</th><th>Estado</th><th></th></tr></thead><tbody id="ing-item-table"></tbody></table>
+         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Observaciones (opcional)</th><th>Estado</th><th></th></tr></thead><tbody id="ing-item-table"></tbody></table>
         </div>
         <datalist id="ing-sap-list"></datalist>
         <p class="income-small-note" id="ing-item-note">Selecciona un SAP de la maestra. Los ítems pueden quedar incompletos mientras sean borrador.</p>

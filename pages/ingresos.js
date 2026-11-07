@@ -135,6 +135,15 @@
     dirty=true;validation=null;text('ingress-save-indicator','Cambios sin guardar');
     renderSummary();renderConfirmation();renderValidation();
   }
+  // Un SAP sin perfil admite identificador interno único por unidad,
+  // o gestión legada por cantidad si no se especifica serial.
+  function itemComplete(item){
+    const sap=bySap.get(n(item.sap_code));
+    const serial=n(item.serial),quantity=Number(item.quantity);
+    if(!sap||!Number.isInteger(quantity)||quantity<1)return false;
+    if(serial)return quantity===1&&(sap.serial_profile!=='CON PERFIL DE SERIE'||!['SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(serial));
+    return sap.serial_profile==='SIN PERFIL DE SERIE';
+  }
   function renderSummary(){
     const doc=getDoc(),serialCount=items.filter(x=>x.serial?.trim()).length;
     text('ing-aside-lines',items.length+' ítems');
@@ -142,11 +151,7 @@
     text('ing-aside-source',warehouseName(doc.source_id));
     text('ing-aside-destination',warehouseName(doc.destination_id));
     text('ing-aside-serial',serialCount+' serial'+(serialCount===1?'':'es'));
-    const complete=items.filter(x=>{
-      const sap=bySap.get(n(x.sap_code));
-      return sap&&Number(x.quantity)>0&&
-        (sap.serial_profile==='CON PERFIL DE SERIE'? Boolean(n(x.serial))&&Number(x.quantity)===1:!n(x.serial));
-    }).length;
+    const complete=items.filter(itemComplete).length;
     $('ing-progress-fill').style.width=items.length?Math.round(100*complete/items.length)+'%':'0%';
     text('ing-aside-progress',complete+' de '+items.length+' ítems completos.');
     const aside=$('ing-aside-list');aside.replaceChildren();
@@ -187,8 +192,7 @@
         const profile=tr.querySelector('.income-item-profile');
         desc.textContent=sap?.description||'SAP no encontrado';
         profile.textContent=sap?.serial_profile||'Sin clasificar';
-        const ok=sap&&Number(item.quantity)>0&&
-          (sap.serial_profile==='CON PERFIL DE SERIE'?Boolean(n(item.serial))&&Number(item.quantity)===1:!n(item.serial));
+        const ok=itemComplete(item);
         tr.querySelector('.ingress-pill').textContent=ok?'Completo':'Revisar';
         tr.querySelector('.ingress-pill').className=ok?'ingress-pill':'ingress-pill draft';
       }
@@ -214,8 +218,7 @@
       cell(tr,itemField(item,'serial',index));
       cell(tr,itemField(item,'quantity',index));
       cell(tr,itemField(item,'notes',index));
-      const ok=sap&&Number(item.quantity)>0&&
-        (sap.serial_profile==='CON PERFIL DE SERIE'?Boolean(n(item.serial))&&Number(item.quantity)===1:!n(item.serial));
+      const ok=itemComplete(item);
       cell(tr,elt('span',ok?'Completo':'Revisar',ok?'ingress-pill':'ingress-pill draft'));
       const remove=elt('button','×','ingress-item-remove');remove.type='button';remove.disabled=status!=='BORRADOR';
       remove.title='Eliminar ítem '+(index+1);
@@ -440,21 +443,35 @@
       if(e.details?.validation){validation=e.details.validation;renderValidation();renderSummary();renderConfirmation();}
     }finally{busy=false;if(status==='BORRADOR')renderConfirmation();}
   }
-  function itemTemplate(){
-    if(!window.ExcelJS)return alert('No se pudo cargar el lector de Excel.');
-    const book=new ExcelJS.Workbook();
-    const sheet=book.addWorksheet('Items');
-    sheet.addRow(['Código SAP','Serial','Cantidad','Observaciones']);
-    sheet.getRow(1).font={bold:true};
-    sheet.getColumn(1).width=22;sheet.getColumn(2).width=33;
-    sheet.getColumn(3).width=16;sheet.getColumn(4).width=43;
-    sheet.getColumn(1).numFmt='@';sheet.getColumn(2).numFmt='@';
-    void book.xlsx.writeBuffer().then(bytes=>{
+  async function itemTemplate(){
+    if(!window.ExcelJS){showMessage('No se pudo cargar el lector de Excel.',true);return;}
+    const button=$('ing-item-template');button.disabled=true;
+    try{
+      const book=new ExcelJS.Workbook();book.creator='PULSO';
+      const sheet=book.addWorksheet('Items',{views:[{state:'frozen',ySplit:1,showGridLines:false}]});
+      sheet.columns=[
+        {header:'Código SAP',key:'sap_code',width:22},
+        {header:'Serial',key:'serial',width:35},
+        {header:'Cantidad',key:'quantity',width:16},
+        {header:'Observaciones',key:'notes',width:43}
+      ];
+      const header=sheet.getRow(1);header.height=28;
+      header.eachCell(cell=>{
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF075A47'}};
+        cell.font={name:'Aptos',size:11,color:{argb:'FFFFFFFF'},bold:true};
+        cell.alignment={vertical:'middle'};
+      });
+      sheet.autoFilter={from:{row:1,column:1},to:{row:1,column:4}};
+      sheet.getColumn('sap_code').numFmt='@';
+      sheet.getColumn('serial').numFmt='@';
+      sheet.getColumn('quantity').numFmt='0';
+      const bytes=await book.xlsx.writeBuffer();
       const url=URL.createObjectURL(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
       const a=document.createElement('a');a.href=url;a.download='PULSO_Plantilla_Items_Ingresos.xlsx';
       document.body.append(a);a.click();a.remove();
       setTimeout(()=>URL.revokeObjectURL(url),1000);
-    });
+    }catch(e){showMessage('No se pudo descargar la plantilla: '+e.message,true);}
+    finally{button.disabled=false;}
   }
   async function importItems(file){
     if(!file||status!=='BORRADOR')return;

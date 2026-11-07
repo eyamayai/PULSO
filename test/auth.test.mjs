@@ -12,9 +12,10 @@ const sql6=fs.readFileSync(new URL('../cloudflare/migrations/0006_vinculo_person
 const sql7=fs.readFileSync(new URL('../cloudflare/migrations/0007_bodegas_aliados.sql',import.meta.url),'utf8');
 const sql8=fs.readFileSync(new URL('../cloudflare/migrations/0008_departamentos_aliados.sql',import.meta.url),'utf8');
 const sql9=fs.readFileSync(new URL('../cloudflare/migrations/0009_ingresos.sql',import.meta.url),'utf8');
+const sql10=fs.readFileSync(new URL('../cloudflare/migrations/0010_seriales_internos_ingresos.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);}
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -796,6 +797,52 @@ test('Ingresos: serial repetido bloquea segundo documento sin sumar cantidades',
  assert.ok((await blocked.json()).validation.errors.some(y=>y.code==='SERIAL_EXISTENTE'));
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
  assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+});
+
+test('Ingresos: SAP sin perfil puede registrar serial interno único sin sumar inventario a granel',async()=>{
+  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+  const id=await ingNew(x,cookie),payload=ingPayload(f);
+  payload.document.notes='';
+  payload.items=[
+    {sap_code:f.sapSerial,serial:'EQ-002',quantity:1,notes:''},
+    {sap_code:f.sapBulk,serial:'INT-SAP10002-0001',quantity:1,notes:''},
+    {sap_code:f.sapBulk,serial:'INT-SAP10002-0002',quantity:1,notes:''}
+  ];
+  const saved=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+  assert.equal(saved.status,200);
+  assert.equal((await saved.json()).validation.valid,true);
+  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+  assert.deepEqual(
+    x.database.prepare('SELECT serial FROM inventory_serials ORDER BY serial').all().map(x=>x.serial),
+    ['EQ-002','INT-SAP10002-0001','INT-SAP10002-0002']);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_bulk_stock').get().n,0);
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,3);
+  assert.equal(x.database.prepare('SELECT notes FROM ingress_documents WHERE id=?').get(id).notes,'');
+});
+test('Ingresos: identificador interno duplicado o con cantidad mayor de uno bloquea el registro',async()=>{
+  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+  const id=await ingNew(x,cookie),payload=ingPayload(f);
+  payload.items=[{sap_code:f.sapBulk,serial:'INT-MATERIAL-01',quantity:2,notes:''}];
+  let result=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+  assert.equal(result.status,200);
+  assert.ok((await result.json()).validation.errors.some(x=>x.code==='CANTIDAD_SERIAL'));
+  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
+  const actor=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+  assert.throws(()=>x.database.prepare("UPDATE ingress_documents SET status='REGISTRADO',registered_by=? WHERE id=?").run(actor,id),/CANTIDAD_SERIAL/);
+  payload.items=[{sap_code:f.sapBulk,serial:'INT-MATERIAL-01',quantity:1,notes:''},
+                 {sap_code:f.sapBulk,serial:'int-material-01',quantity:1,notes:''}];
+  result=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+  assert.ok((await result.json()).validation.errors.some(x=>x.code==='SERIAL_REPETIDO'));
+  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
+  payload.items.pop();
+  await ingApi(x,cookie,'/'+id,'PATCH',payload);
+  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+  const another=await ingNew(x,cookie);
+  await ingApi(x,cookie,'/'+another,'PATCH',payload);
+  const denied=await ingApi(x,cookie,'/'+another+'/confirmar','POST');
+  assert.equal(denied.status,422);
+  assert.ok((await denied.json()).validation.errors.some(x=>x.code==='SERIAL_EXISTENTE'));
+  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
 });
 test('Ingresos: origen y destino deben corresponder a ALIADO y PROPIA activos',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);

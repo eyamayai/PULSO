@@ -1041,16 +1041,13 @@ async function ingValidate(db,document,items){
       add('CANTIDAD_INVALIDA','Ítem '+n+': la cantidad debe ser un entero positivo.',2,index);
     }else unitCount+=item.quantity;
     const serial=String(item.serial||'').trim().toUpperCase();
-    if(sap?.serial_profile==='CON PERFIL DE SERIE'){
-      serialized++;
-      if(!serial||['SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(serial))
-        add('SERIAL_OBLIGATORIO','Ítem '+n+': registra el serial obligatorio.',2,index);
-      if(item.quantity!==1)
-        add('CANTIDAD_SERIAL','Ítem '+n+': cada serial debe tener cantidad 1.',2,index);
-    }else if(sap?.serial_profile==='SIN PERFIL DE SERIE'&&serial){
-      add('SERIAL_NO_PERMITIDO','Ítem '+n+': este SAP no maneja serial; deja el campo vacío.',2,index);
-    }
+    if(sap?.serial_profile==='CON PERFIL DE SERIE'&&
+       (!serial||['SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(serial)))
+      add('SERIAL_OBLIGATORIO','Ítem '+n+': registra el serial obligatorio.',2,index);
+    if(serial&&item.quantity!==1)
+      add('CANTIDAD_SERIAL','Ítem '+n+': cada serial corresponde a una sola unidad (cantidad 1).',2,index);
     if(serial){
+      serialized++;
       if(seen.has(serial))add('SERIAL_REPETIDO','Ítem '+n+': el serial se repite en este documento.',2,index);
       seen.add(serial);serials.push(serial);
     }
