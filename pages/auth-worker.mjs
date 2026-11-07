@@ -1352,15 +1352,258 @@ async function ingresosHandler(request,env,user,path){
   return json({ok:true,id,status:'BORRADOR',validation:await ingValidate(db,item.document,item.items)});
 }
 
+
+/* DESPACHOS. Asignación de inventario PROPIO a técnicos de Personal.
+ * Los seriales se reservan en una tabla distinta para mantener intactos
+ * los registros originales de Ingresos y hacer comprobaciones atómicas. */
+async function dispatchGet(db,id){
+ const document=await db.prepare(
+  "SELECT d.*,p.full_name AS technician_name,p.document_number AS technician_document,"+
+  "p.department AS technician_department,p.city_base AS technician_city,p.zone AS technician_zone,"+
+  "sup.full_name AS supervisor_name,w.centro,w.almacen,w.description AS warehouse_name "+
+  "FROM dispatch_documents d LEFT JOIN master_personnel p ON p.id=d.technician_id "+
+  "LEFT JOIN master_personnel sup ON sup.id=p.supervisor_id "+
+  "LEFT JOIN master_logistics_locations w ON w.id=d.warehouse_id WHERE d.id=?"
+ ).bind(id).first();
+ if(!document)return null;
+ const result=await db.prepare(
+  "SELECT i.id,i.position,i.sap_code,i.serial,i.quantity,i.notes,s.description AS sap_description,"+
+  "inv.lot,inv.reception_state,inv.physical_state "+
+  "FROM dispatch_items i LEFT JOIN master_sap_catalog s ON s.sap_code=i.sap_code "+
+  "LEFT JOIN inventory_serials inv ON inv.serial=i.serial COLLATE NOCASE AND trim(i.serial)<>'' "+
+  "WHERE i.dispatch_id=? ORDER BY i.position"
+ ).bind(id).all();
+ return {document,items:result.results||[]};
+}
+function dispatchNormalize(data){
+ if(!fieldsOf(data,['technician_id','warehouse_id','dispatch_date','notes','items']))return null;
+ const technician_id=trimmed(data.technician_id,50);
+ const warehouse_id=trimmed(data.warehouse_id,50);
+ const dispatch_date=trimmed(data.dispatch_date,20);
+ const notes=trimmed(data.notes,500);
+ if((dispatch_date&&!ingDate(dispatch_date))||notes.length>500)return null;
+ if(!Array.isArray(data.items)||data.items.length>500)return null;
+ const items=[];
+ for(const [index,row] of data.items.entries()){
+  if(!fieldsOf(row,['sap_code','serial','quantity','notes']))return null;
+  const sap_code=trimmed(row.sap_code,50).toUpperCase();
+  const serial=trimmed(row.serial,100).toUpperCase();
+  const remark=trimmed(row.notes,240);
+  const quantity=Number(row.quantity);
+  if(!Number.isInteger(quantity)||quantity<0||quantity>1000000||
+    sap_code.length>50||serial.length>100||remark.length>240)return null;
+  items.push({id:crypto.randomUUID(),position:index+1,sap_code,serial,quantity,notes:remark});
+ }
+ return {technician_id:technician_id||null,warehouse_id:warehouse_id||null,dispatch_date,notes,items};
+}
+async function dispatchValidate(db,doc,items){
+ const errors=[],warnings=[];
+ const add=(code,message,step,index=null)=>errors.push({code,message,step,index,blocking:true});
+ if(!ingDate(doc.dispatch_date))add('FECHA_INVALIDA','Indica la fecha del despacho.',1);
+ const tech=doc.technician_id?await db.prepare(
+  "SELECT id FROM master_personnel WHERE id=? AND position='TECNICO' AND is_active=1"
+ ).bind(doc.technician_id).first():null;
+ if(!tech)add('TECNICO_INVALIDO','Selecciona un técnico activo de la Maestra Personal.',1);
+ const warehouse=doc.warehouse_id?await db.prepare(
+  "SELECT id FROM master_logistics_locations WHERE id=? AND administration='PROPIA' AND is_active=1"
+ ).bind(doc.warehouse_id).first():null;
+ if(!warehouse)add('BODEGA_INVALIDA','Selecciona una bodega propia activa.',1);
+ if(!items.length)add('SIN_ITEMS','Selecciona al menos un equipo o material.',2);
+ const sapKeys=[...new Set(items.map(i=>i.sap_code).filter(Boolean))];
+ const saps=sapKeys.length?(await db.prepare(
+  "SELECT sap_code,serial_profile,description FROM master_sap_catalog WHERE is_active=1 AND sap_code IN (SELECT value FROM json_each(?))"
+ ).bind(JSON.stringify(sapKeys)).all()).results||[]:[];
+ const catalog=new Map(saps.map(x=>[x.sap_code,x]));
+ const serialValues=[...new Set(items.map(i=>i.serial).filter(Boolean))];
+ const stocks=serialValues.length?(await db.prepare(
+  "SELECT inv.serial,inv.sap_code,inv.warehouse_id,inv.status,ass.serial AS assigned "+
+  "FROM inventory_serials inv LEFT JOIN dispatch_serial_assignments ass ON ass.serial=inv.serial COLLATE NOCASE "+
+  "WHERE inv.serial COLLATE NOCASE IN (SELECT value FROM json_each(?))"
+ ).bind(JSON.stringify(serialValues)).all()).results||[]:[];
+ const serialMap=new Map(stocks.map(x=>[x.serial.toUpperCase(),x]));
+ const bulk=(await db.prepare(
+  "SELECT sap_code,quantity FROM inventory_bulk_stock WHERE warehouse_id=?"
+ ).bind(doc.warehouse_id||'').all()).results||[];
+ const bulkMap=new Map(bulk.map(x=>[x.sap_code,Number(x.quantity)]));
+ const counts=new Map(),seen=new Set();let units=0,serials=0;
+ for(let i=0;i<items.length;i++){
+  const it=items[i],n=i+1,sap=catalog.get(it.sap_code);
+  if(!sap)add('SAP_INVALIDO','Ítem '+n+': SAP no registrado o inactivo.',2,i);
+  if(!Number.isInteger(it.quantity)||it.quantity<1)add('CANTIDAD_INVALIDA','Ítem '+n+': indica cantidad positiva.',2,i);
+  else units+=it.quantity;
+  if(!it.serial&&sap?.serial_profile==='CON PERFIL DE SERIE')
+   add('SERIAL_OBLIGATORIO','Ítem '+n+': debes seleccionar un serial.',2,i);
+  if(it.serial){
+   serials++;
+   if(it.quantity!==1)add('CANTIDAD_SERIAL','Ítem '+n+': cada serial corresponde a una unidad.',2,i);
+   if(seen.has(it.serial))add('SERIAL_REPETIDO','Ítem '+n+': serial repetido en este despacho.',2,i);
+   seen.add(it.serial);
+   const found=serialMap.get(it.serial);
+   if(!found||found.sap_code!==it.sap_code||found.warehouse_id!==doc.warehouse_id||
+       found.status!=='DISPONIBLE'||found.assigned)
+    add('SERIAL_NO_DISPONIBLE','Ítem '+n+': el serial no está disponible en la bodega.',2,i);
+  }else if(it.quantity>0)counts.set(it.sap_code,(counts.get(it.sap_code)||0)+it.quantity);
+ }
+ for(const [sap,qty] of counts){
+  if(qty>(bulkMap.get(sap)||0))
+   add('SIN_EXISTENCIAS','El SAP '+sap+' requiere '+qty+' unidades, pero la bodega no tiene suficientes.',2);
+ }
+ return {valid:errors.length===0,errors,warnings,
+   totals:{lines:items.length,units,serialized:serials,bulk:items.length-serials,blocked:errors.length}};
+}
+async function dispatchHandler(request,env,user,path){
+ if(!user)return ingBad('NO_AUTENTICADO',401);
+ if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
+ const db=env.DB,method=request.method;
+ if(path==='/api/despachos/catalogos'){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  const [people,warehouses,serials,bulk]=await Promise.all([
+   db.prepare(
+    "SELECT p.id,p.document_number,p.full_name,p.department,p.city_base,p.zone,s.full_name AS supervisor_name "+
+    "FROM master_personnel p LEFT JOIN master_personnel s ON s.id=p.supervisor_id "+
+    "WHERE p.position='TECNICO' AND p.is_active=1 ORDER BY p.full_name COLLATE NOCASE LIMIT 2500").all(),
+   db.prepare("SELECT id,centro,almacen,description FROM master_logistics_locations WHERE administration='PROPIA' AND is_active=1 ORDER BY description LIMIT 2500").all(),
+   db.prepare(
+    "SELECT inv.serial,inv.sap_code,inv.warehouse_id,inv.lot,inv.reception_state,inv.physical_state,"+
+    "s.description FROM inventory_serials inv JOIN master_sap_catalog s ON s.sap_code=inv.sap_code "+
+    "LEFT JOIN dispatch_serial_assignments a ON a.serial=inv.serial COLLATE NOCASE "+
+    "WHERE inv.status='DISPONIBLE' AND a.serial IS NULL AND s.is_active=1 "+
+    "ORDER BY inv.created_at DESC LIMIT 5000").all(),
+   db.prepare(
+    "SELECT b.warehouse_id,b.sap_code,b.quantity,s.description FROM inventory_bulk_stock b "+
+    "JOIN master_sap_catalog s ON s.sap_code=b.sap_code WHERE b.quantity>0 AND s.is_active=1 "+
+    "ORDER BY s.description LIMIT 5000").all()
+  ]);
+  return json({ok:true,technicians:people.results||[],warehouses:warehouses.results||[],
+    serials:serials.results||[],bulk:bulk.results||[]});
+ }
+ if(path==='/api/despachos'){
+  if(method==='GET'){
+   const [r,stocks,bulk,assign,technicians,assignedTotal]=await Promise.all([
+    db.prepare(
+     "SELECT d.id,d.reference,d.status,d.dispatch_date,d.created_at,d.notes,"+
+     "p.full_name AS technician_name,p.document_number AS technician_document,"+
+     "w.description AS warehouse_name,"+
+     "(SELECT count(*) FROM dispatch_items i WHERE i.dispatch_id=d.id) AS item_count,"+
+     "(SELECT coalesce(sum(i.quantity),0) FROM dispatch_items i WHERE i.dispatch_id=d.id) AS total_units "+
+     "FROM dispatch_documents d LEFT JOIN master_personnel p ON p.id=d.technician_id "+
+     "LEFT JOIN master_logistics_locations w ON w.id=d.warehouse_id "+
+     "ORDER BY d.created_at DESC,d.id DESC LIMIT 500"
+    ).all(),
+    db.prepare("SELECT count(*) AS n FROM inventory_serials s LEFT JOIN dispatch_serial_assignments a ON a.serial=s.serial COLLATE NOCASE WHERE s.status='DISPONIBLE' AND a.serial IS NULL").first(),
+    db.prepare("SELECT coalesce(sum(quantity),0) AS n FROM inventory_bulk_stock").first(),
+    db.prepare("SELECT count(*) AS n FROM dispatch_serial_assignments").first(),
+    db.prepare("SELECT count(DISTINCT technician_id) AS n FROM dispatch_documents WHERE status='DESPACHADO'").first(),
+    db.prepare("SELECT coalesce(sum(quantity),0) AS n FROM dispatch_movements").first()
+   ]);
+   return json({ok:true,items:r.results||[],metrics:{
+    available:Number(stocks?.n||0)+Number(bulk?.n||0),
+    assigned:Number(assign?.n||0),
+    assigned_total:Number(assignedTotal?.n||0),
+    technicians:Number(technicians?.n||0),
+    drafts:(r.results||[]).filter(i=>i.status==='BORRADOR').length
+   }});
+  }
+  if(method==='POST'){
+   if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+   const id=crypto.randomUUID();
+   await db.batch([
+    db.prepare('INSERT INTO dispatch_documents(id,created_by,updated_by) VALUES (?,?,?)').bind(id,user.id,user.id),
+    db.prepare("INSERT INTO dispatch_audit(id,dispatch_id,actor_id,action) VALUES (?,?,?,'CREAR_BORRADOR')").bind(crypto.randomUUID(),id,user.id)
+   ]);
+   return json({ok:true,id,status:'BORRADOR'},201);
+  }
+  return ingBad('METODO_NO_PERMITIDO',405);
+ }
+ const match=/^\/api\/despachos\/([0-9a-f-]{36})(?:\/(validar|confirmar))?$/i.exec(path);
+ if(!match)return ingBad('RUTA_NO_DISPONIBLE',404);
+ const id=match[1],action=match[2]||'';
+ const item=await dispatchGet(db,id);
+ if(!item)return ingBad('DESPACHO_NO_ENCONTRADO',404);
+ const doc=item.document;
+ if(action==='validar'){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  if(doc.status!=='BORRADOR')return ingBad('DESPACHO_INMUTABLE',409);
+  return json({ok:true,validation:await dispatchValidate(db,doc,item.items)});
+ }
+ if(action==='confirmar'){
+  if(method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+  if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+  if(doc.status!=='BORRADOR')return ingBad('DESPACHO_INMUTABLE',409);
+  const validation=await dispatchValidate(db,doc,item.items);
+  if(!validation.valid)return ingBad('VALIDACION_BLOQUEANTE',422,{validation});
+  const ref='DES-'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'-'+id.slice(0,8).toUpperCase();
+  try{
+   const response=await db.batch([
+    db.prepare(
+     "UPDATE dispatch_documents SET status='DESPACHADO',reference=?,confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='BORRADOR'"
+    ).bind(ref,user.id,user.id,id),
+    db.prepare("INSERT INTO dispatch_audit(id,dispatch_id,actor_id,action,details) VALUES (?,?,?,'DESPACHAR',?)")
+     .bind(crypto.randomUUID(),id,user.id,JSON.stringify(validation.totals))
+   ]);
+   if((response[0]?.meta?.changes??response[0]?.changes)!==1)return ingBad('DESPACHO_INMUTABLE',409);
+  }catch{return ingBad('EXISTENCIAS_CAMBIARON',409);}
+  return json({ok:true,id,reference:ref,status:'DESPACHADO',totals:validation.totals});
+ }
+ if(action)return ingBad('RUTA_NO_DISPONIBLE',404);
+ if(method==='GET')return json({ok:true,...item,
+   validation:doc.status==='BORRADOR'?await dispatchValidate(db,doc,item.items):null});
+ if(method==='DELETE'){
+  if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+  if(doc.status!=='BORRADOR')return ingBad('DESPACHO_INMUTABLE',409);
+  try{
+   const res=await db.batch([
+    db.prepare('DELETE FROM dispatch_items WHERE dispatch_id=?').bind(id),
+    db.prepare('DELETE FROM dispatch_audit WHERE dispatch_id=?').bind(id),
+    db.prepare("DELETE FROM dispatch_documents WHERE id=? AND status='BORRADOR'").bind(id)
+   ]);
+   if((res[2]?.meta?.changes??res[2]?.changes)!==1)return ingBad('DESPACHO_INMUTABLE',409);
+  }catch{return ingBad('DESPACHO_INMUTABLE',409);}
+  return json({ok:true,deleted:true});
+ }
+ if(method!=='PATCH')return ingBad('METODO_NO_PERMITIDO',405);
+ if(doc.status!=='BORRADOR')return ingBad('DESPACHO_INMUTABLE',409);
+ const parsed=await ingBody(request);
+ if(parsed.error)return ingBad(parsed.error,parsed.status);
+ const normalized=dispatchNormalize(parsed.data);
+ if(!normalized)return ingBad('DATOS_INVALIDOS',400);
+ const rows=JSON.stringify(normalized.items);
+ try{
+  await db.batch([
+   db.prepare(
+    'UPDATE dispatch_documents SET technician_id=?,warehouse_id=?,dispatch_date=?,notes=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?'
+   ).bind(normalized.technician_id,normalized.warehouse_id,normalized.dispatch_date,normalized.notes,user.id,id,'BORRADOR'),
+   db.prepare('DELETE FROM dispatch_items WHERE dispatch_id=?').bind(id),
+   db.prepare(
+    "INSERT INTO dispatch_items(id,dispatch_id,position,sap_code,serial,quantity,notes) "+
+    "SELECT json_extract(value,'$.id'),?,json_extract(value,'$.position'),json_extract(value,'$.sap_code'),"+
+    "json_extract(value,'$.serial'),json_extract(value,'$.quantity'),json_extract(value,'$.notes') FROM json_each(?)"
+   ).bind(id,rows),
+   db.prepare("INSERT INTO dispatch_audit(id,dispatch_id,actor_id,action) VALUES (?,?,?,'GUARDAR_BORRADOR')").bind(crypto.randomUUID(),id,user.id)
+  ]);
+ }catch{return ingBad('NO_SE_PUDO_GUARDAR',409);}
+ const updated=await dispatchGet(db,id);
+ return json({ok:true,id,status:'BORRADOR',validation:await dispatchValidate(db,updated.document,updated.items)});
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     try {
-      if (pathname.startsWith('/api/ingresos') || pathname === '/ingresos' || pathname === '/ingresos.html' || pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
+      if (pathname.startsWith('/api/despachos') || pathname === '/despachos' || pathname === '/despachos.html' || pathname.startsWith('/api/ingresos') || pathname === '/ingresos' || pathname === '/ingresos.html' || pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
         if (!env.DB) return json({ok: false, error: 'SERVICIO_NO_CONFIGURADO'}, 503);
         if (pathname === '/api/auth/health' && request.method === 'GET') {
           await env.DB.prepare('SELECT id FROM app_users LIMIT 1').first();
           return json({ok: true, service: 'pulso-auth', ready: true});
+        }
+        if(pathname.startsWith('/api/despachos'))
+          return await dispatchHandler(request,env,await currentUser(request,env),pathname);
+        if(pathname==='/despachos'||pathname==='/despachos.html'){
+          if(request.method!=='GET'&&request.method!=='HEAD')return ingBad('METODO_NO_PERMITIDO',405);
+          const person=await currentUser(request,env);
+          if(!person)return go('/main');
+          if(person.role!=='ADMIN')return go('/inicio');
+          return securePage(await env.ASSETS.fetch(request));
         }
         if(pathname.startsWith('/api/ingresos'))
           return await ingresosHandler(request,env,await currentUser(request,env),pathname);

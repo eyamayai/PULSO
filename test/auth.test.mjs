@@ -16,9 +16,10 @@ const sql10=fs.readFileSync(new URL('../cloudflare/migrations/0010_seriales_inte
 const sql11=fs.readFileSync(new URL('../cloudflare/migrations/0011_clasificacion_estados_ingresos.sql',import.meta.url),'utf8');
 const sql12=fs.readFileSync(new URL('../cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql',import.meta.url),'utf8');
 const sql13=fs.readFileSync(new URL('../cloudflare/migrations/0013_valor_unitario_catalogo.sql',import.meta.url),'utf8');
+const sql14=fs.readFileSync(new URL('../cloudflare/migrations/0014_despachos_tecnicos.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);}
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -1136,4 +1137,143 @@ test('Catálogo: nueva columna disponible en plantilla, ficha y tabla',()=>{
  assert.match(html,/id="sap-value"/);
  assert.match(imp,/\['Valor del equipo','unit_value'\]/);
  assert.match(imp,/answer.updated/);
+});
+
+/* Test integrado del primer despliegue de Despachos a técnicos. */
+async function dispatchApi(x,cookie,path='',method='GET',data=null,origin=root){
+ return worker.fetch(x.req('/api/despachos'+path,{
+  method,origin,headers:{cookie,...(method!=='GET'?{origin}:{})},
+  ...(data===null?{}:{data})
+ }),x.env);
+}
+function dispatchFixtures(x){
+ const f=ingFixtures(x),db=x.database;
+ const actor=db.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ const sup=randomUUID(),tech=randomUUID(),secondTech=randomUUID();
+ db.prepare('INSERT INTO master_personnel(id,document_number,full_name,position,department,zone,supervisor_id,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)')
+  .run(sup,'11001100','Supervisor despacho','SUPERVISOR','CESAR','Valledupar',null,actor,actor);
+ for(const [id,doc,name] of [[tech,'77001122','Técnico despacho'],[secondTech,'77001133','Técnica alterna']])
+  db.prepare('INSERT INTO master_personnel(id,document_number,full_name,position,department,city_base,supervisor_id,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)')
+   .run(id,doc,name,'TECNICO','CESAR','Valledupar',sup,actor,actor);
+ return {...f,tech,secondTech,sup};
+}
+async function fillIngressForDispatch(x,cookie,f){
+ const id=await ingNew(x,cookie);
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f))).status,200);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ return id;
+}
+async function newDispatch(x,cookie){
+ const response=await dispatchApi(x,cookie,'','POST');
+ assert.equal(response.status,201);
+ return (await response.json()).id;
+}
+function dispatchPayload(f){
+ return {technician_id:f.tech,warehouse_id:f.destination,dispatch_date:'2026-11-07',notes:'Prueba de asignación',
+  items:[{sap_code:f.sapSerial,serial:'EQ-001',quantity:1,notes:''},
+   {sap_code:f.sapBulk,serial:'',quantity:3,notes:''}]
+ };
+}
+test('Despachos: requiere autenticación y usa técnicos activos y stock real',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
+ assert.equal((await dispatchApi(x,'')).status,401);
+ assert.equal((await dispatchApi(x,cookie,'','POST',null,'https://ajeno.example')).status,403);
+ assert.equal((await dispatchApi(x,'','/catalogos')).status,401);
+ assert.equal((await dispatchApi(x,cookie,'/catalogos')).status,200);
+ await fillIngressForDispatch(x,cookie,f);
+ const data=await (await dispatchApi(x,cookie,'/catalogos')).json();
+ assert.equal(data.technicians.length,2);
+ assert.equal(data.warehouses.some(w=>w.id===f.destination),true);
+ assert.equal(data.serials.some(s=>s.serial==='EQ-001'),true);
+ assert.equal(data.bulk.find(b=>b.sap_code===f.sapBulk).quantity,5);
+});
+test('Despachos: confirmar asignación de serial y cantidades es atómico y trazable',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
+ const ingresado=await fillIngressForDispatch(x,cookie,f),id=await newDispatch(x,cookie);
+ const payload=dispatchPayload(f);
+ const draft=await dispatchApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal(draft.status,200);
+ assert.equal((await draft.json()).validation.valid,true);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_serial_assignments').get().n,0);
+ const confirmed=await dispatchApi(x,cookie,'/'+id+'/confirmar','POST');
+ assert.equal(confirmed.status,200);
+ const confirmedData=await confirmed.json();
+ assert.match(confirmedData.reference,/^DES-\d{8}-[A-F0-9]{8}$/);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_movements').get().n,2);
+ const ass=x.database.prepare('SELECT serial,technician_id,dispatch_id FROM dispatch_serial_assignments').get();
+ assert.deepEqual([ass.serial,ass.technician_id,ass.dispatch_id],['EQ-001',f.tech,id]);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials WHERE ingress_id=?').get(ingresado).n,1);
+ const view=(await (await dispatchApi(x,cookie,'/'+id)).json());
+ assert.equal(view.document.status,'DESPACHADO');
+ assert.equal(view.validation,null);
+ assert.equal(view.items[0].lot,'VALORADO');
+ assert.equal(view.items[0].physical_state,'BUENO');
+ const cat=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ assert.equal(cat.serials.some(s=>s.serial==='EQ-001'),false);
+ assert.equal(cat.bulk.find(b=>b.sap_code===f.sapBulk).quantity,2);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,409);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',payload)).status,409);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'DELETE')).status,409);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_movements').get().n,2);
+});
+test('Despachos: bloquea segundo despacho del mismo serial y exceder saldos de bodega',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
+ await fillIngressForDispatch(x,cookie,f);
+ const first=await newDispatch(x,cookie);
+ await dispatchApi(x,cookie,'/'+first,'PATCH',dispatchPayload(f));
+ assert.equal((await dispatchApi(x,cookie,'/'+first+'/confirmar','POST')).status,200);
+ const other=await newDispatch(x,cookie),duplicate=dispatchPayload(f);
+ duplicate.technician_id=f.secondTech;
+ duplicate.items=[{sap_code:f.sapSerial,serial:'EQ-001',quantity:1,notes:''}];
+ const result=await dispatchApi(x,cookie,'/'+other,'PATCH',duplicate);
+ assert.equal(result.status,200);
+ assert.ok((await result.json()).validation.errors.some(e=>e.code==='SERIAL_NO_DISPONIBLE'));
+ assert.equal((await dispatchApi(x,cookie,'/'+other+'/confirmar','POST')).status,422);
+ // Ni un UPDATE directo de SQL debe reservar el mismo serial.
+ const actor=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ assert.throws(()=>x.database.prepare("UPDATE dispatch_documents SET status='DESPACHADO',confirmed_by=? WHERE id=?").run(actor,other),/SERIAL_NO_DISPONIBLE/);
+ const excessive=dispatchPayload(f);
+ excessive.items=[{sap_code:f.sapBulk,serial:'',quantity:3,notes:''}];
+ await dispatchApi(x,cookie,'/'+other,'PATCH',excessive);
+ assert.equal((await dispatchApi(x,cookie,'/'+other+'/confirmar','POST')).status,422);
+ assert.throws(()=>x.database.prepare("UPDATE dispatch_documents SET status='DESPACHADO',confirmed_by=? WHERE id=?").run(actor,other),/SIN_EXISTENCIAS/);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_movements').get().n,2);
+});
+test('Despachos: borrador no mueve stock, puede eliminarse, y se valida inventario insuficiente',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
+ await fillIngressForDispatch(x,cookie,f);
+ const id=await newDispatch(x,cookie);
+ const data=dispatchPayload(f);data.items[1].quantity=6;
+ const saved=await dispatchApi(x,cookie,'/'+id,'PATCH',data);
+ assert.equal(saved.status,200);
+ assert.ok((await saved.json()).validation.errors.some(e=>e.code==='SIN_EXISTENCIAS'));
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'DELETE',null,'https://ajeno.example')).status,403);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'DELETE')).status,200);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_documents').get().n,0);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_items').get().n,0);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_audit').get().n,0);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM dispatch_movements').get().n,0);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+ const noTech=await newDispatch(x,cookie),payload=dispatchPayload(f);
+ payload.technician_id=f.sup;
+ const err=await dispatchApi(x,cookie,'/'+noTech,'PATCH',payload);
+ assert.ok((await err.json()).validation.errors.some(e=>e.code==='TECNICO_INVALIDO'));
+ assert.equal((await dispatchApi(x,cookie,'/'+noTech+'/confirmar','POST')).status,422);
+});
+test('Despachos: HTML muestra la identidad y las tres pantallas diferenciadas',()=>{
+ const html=fs.readFileSync(new URL('../pages/despachos.html',import.meta.url),'utf8');
+ const js=fs.readFileSync(new URL('../pages/despachos.js',import.meta.url),'utf8');
+ assert.match(html,/id="dispatch-home"/);assert.match(html,/id="dispatch-wizard"/);
+ assert.match(html,/id="dispatch-detail"/);
+ assert.match(html,/id="dispatch-excel-file"/);
+ assert.match(html,/Nuevo despacho a técnico/);
+ assert.match(html,/Cargar despachos desde Excel/);
+ assert.match(js,/showDetail\(result\)/);
+ assert.match(js,/PULSO_Plantilla_Despachos_a_tecnicos.xlsx/);
 });

@@ -18,6 +18,7 @@ on:
       - 'cloudflare/migrations/0011_clasificacion_estados_ingresos.sql'
       - 'cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql'
       - 'cloudflare/migrations/0013_valor_unitario_catalogo.sql'
+      - 'cloudflare/migrations/0014_despachos_tecnicos.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -58,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/despachos.html pages/despachos.css pages/despachos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -88,6 +89,11 @@ jobs:
           grep -q 'CUNDINAMARCA' cloudflare/migrations/0008_departamentos_aliados.sql
           node --check pages/auth-worker.mjs
           node --check pages/ingresos.js
+          node --check pages/despachos.js
+          grep -q 'id="dispatch-wizard"' pages/despachos.html
+          grep -q 'href="/despachos"' pages/inicio.html
+          grep -q 'href="/despachos"' pages/maestras.html
+          grep -q 'href="/despachos"' pages/ingresos.html
           grep -q 'id="ingress-wizard"' pages/ingresos.html
           grep -q 'id="ing-confirm"' pages/ingresos.html
           grep -q 'value="NUMERO_PEDIDO"' pages/ingresos.html
@@ -190,6 +196,7 @@ jobs:
           else
             echo "La valoración del catálogo ya está habilitada"
           fi
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0014_despachos_tecnicos.sql
 
       - name: Preparar administrador inicial si fue autorizado
         env:
@@ -212,7 +219,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/despachos.html pages/despachos.css pages/despachos.js pages/activar.html pages/activar.js pages/activar.css pages/_headers "$RUNNER_TEMP/pulso-public/"
           cp "$RUNNER_TEMP/pulso-excel/node_modules/exceljs/dist/exceljs.min.js" "$RUNNER_TEMP/pulso-public/exceljs.min.js"
           cp pages/auth-worker.mjs "$RUNNER_TEMP/pulso-public/_worker.js"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
@@ -251,6 +258,13 @@ jobs:
           INGRESOS_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/ingresos" || true)
           INGRESOS_API_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/ingresos" || true)
           INGRESOS_CAT_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/ingresos/catalogos" || true)
+          DESPACHOS_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/despachos" || true)
+          DESPACHOS_API_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/despachos" || true)
+          DESPACHOS_CAT_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/despachos/catalogos" || true)
+          if [ "$DESPACHOS_HTTP" != '302' ] || [ "$DESPACHOS_API_HTTP" != '401' ] || [ "$DESPACHOS_CAT_HTTP" != '401' ]; then
+            echo "Despachos no está protegido: página=$DESPACHOS_HTTP API=$DESPACHOS_API_HTTP catálogos=$DESPACHOS_CAT_HTTP" >&2
+            exit 1
+          fi
           if [ "$INGRESOS_HTTP" != '302' ] || [ "$INGRESOS_API_HTTP" != '401' ] || [ "$INGRESOS_CAT_HTTP" != '401' ]; then
             echo "Ingresos no está protegido: página=$INGRESOS_HTTP API=$INGRESOS_API_HTTP catálogos=$INGRESOS_CAT_HTTP" >&2
             exit 1
@@ -277,7 +291,7 @@ jobs:
               exit 1
             fi
           done
-          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js usuarios.js personal-access.js bodegas.js ingresos.js ingresos.css maestras.css activar.js activar.css exceljs.min.js; do
+          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js usuarios.js personal-access.js bodegas.js ingresos.js ingresos.css despachos.js despachos.css maestras.css activar.js activar.css exceljs.min.js; do
             CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
             if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
               echo "Falta recurso de Inicio: $asset (HTTP $CODE)" >&2
