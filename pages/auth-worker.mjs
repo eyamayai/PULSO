@@ -1451,10 +1451,221 @@ async function dispatchValidate(db,doc,items){
  return {valid:errors.length===0,errors,warnings,
    totals:{lines:items.length,units,serialized:serials,bulk:items.length-serials,blocked:errors.length}};
 }
+
+/* Despachos masivos: la vista previa no escribe; la confirmación escribe TODOS los
+   despachos y movimientos en una única transacción D1. Límite: 500 filas / 100 despachos. */
+async function dispatchMassPrepare(db,input){
+ const errors=[],rows=[],groups=new Map(),serialSet=new Set(),bulkTotals=new Map();
+ const fail=(row,field,message)=>{if(errors.length<100)errors.push({row,field,message});};
+ if(!input||!fieldsOf(input,['operation_id','rows'])||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(input.operation_id||''))||
+    !Array.isArray(input.rows)||!input.rows.length||input.rows.length>500)
+  return {valid:false,errors:[{row:0,field:'Archivo',message:'Se requieren entre 1 y 500 filas y un identificador válido.'}]};
+ const keys=['technician_document','centro','almacen','dispatch_date','sap_code','serial','quantity','notes'];
+ for(let i=0;i<input.rows.length;i++){
+  const raw=input.rows[i],line=i+2;
+  if(!fieldsOf(raw,keys)){fail(line,'Columnas','La fila tiene columnas inesperadas o datos inválidos.');continue;}
+  const row={
+   line,technician_document:trimmed(raw.technician_document,25).toUpperCase(),
+   centro:trimmed(raw.centro,30).toUpperCase(),almacen:trimmed(raw.almacen,30).toUpperCase(),
+   dispatch_date:trimmed(raw.dispatch_date,10),
+   sap_code:trimmed(raw.sap_code,50).toUpperCase(),
+   serial:trimmed(raw.serial,100).toUpperCase(),
+   quantity:Number(raw.quantity),notes:trimmed(raw.notes,240)
+  };
+  if(!/^[A-Z0-9-]{4,25}$/.test(row.technician_document)){fail(line,'Identificación técnico','Identificación requerida o inválida.');continue;}
+  if(!/^[A-Z0-9._/-]{1,30}$/.test(row.centro)||!/^[A-Z0-9._/-]{1,30}$/.test(row.almacen)){
+   fail(line,'Bodega','Centro y Almacén son obligatorios.');continue;
+  }
+  if(!ingDate(row.dispatch_date)){fail(line,'Fecha de despacho','Usa AAAA-MM-DD con una fecha válida.');continue;}
+  if(!/^[A-Z0-9][A-Z0-9._/-]{1,49}$/.test(row.sap_code)){fail(line,'Código SAP','Código SAP obligatorio o inválido.');continue;}
+  if(!Number.isInteger(row.quantity)||row.quantity<1||row.quantity>1000000){
+   fail(line,'Cantidad','La cantidad debe ser un entero positivo.');continue;
+  }
+  if(row.serial&&row.quantity!==1){fail(line,'Cantidad','Cada serial corresponde a una unidad (cantidad 1).');continue;}
+  if(String(raw.notes||'').trim().length>240||String(raw.serial||'').trim().length>100){
+   fail(line,'Observaciones / Serial','Se excedió la longitud permitida.');continue;
+  }
+  if(row.serial){
+   if(serialSet.has(row.serial))fail(line,'Serial','El serial está repetido en otra fila del Excel.');
+   serialSet.add(row.serial);
+  }
+  rows.push(row);
+ }
+ if(rows.length){
+  const [technicians,warehouses,saps,serials]=await Promise.all([
+   db.prepare("SELECT id,document_number,full_name FROM master_personnel WHERE position='TECNICO' AND is_active=1 AND document_number IN (SELECT value FROM json_each(?))")
+    .bind(JSON.stringify([...new Set(rows.map(r=>r.technician_document))])).all(),
+   db.prepare("SELECT id,centro,almacen,description FROM master_logistics_locations WHERE administration='PROPIA' AND is_active=1").all(),
+   db.prepare("SELECT sap_code,description,serial_profile FROM master_sap_catalog WHERE is_active=1 AND sap_code IN (SELECT value FROM json_each(?))")
+    .bind(JSON.stringify([...new Set(rows.map(r=>r.sap_code))])).all(),
+   db.prepare(
+    "SELECT inv.serial,inv.sap_code,inv.warehouse_id,inv.status,assign.serial AS assigned "+
+    "FROM inventory_serials inv LEFT JOIN dispatch_serial_assignments assign ON assign.serial=inv.serial COLLATE NOCASE "+
+    "WHERE inv.serial COLLATE NOCASE IN (SELECT value FROM json_each(?))"
+   ).bind(JSON.stringify([...serialSet])).all()
+  ]);
+  const people=new Map((technicians.results||[]).map(p=>[String(p.document_number).toUpperCase(),p]));
+  const locations=new Map((warehouses.results||[]).map(w=>[(String(w.centro)+'|'+String(w.almacen)).toUpperCase(),w]));
+  const catalog=new Map((saps.results||[]).map(i=>[i.sap_code,i]));
+  const available=new Map((serials.results||[]).map(i=>[String(i.serial).toUpperCase(),i]));
+  // Consultar únicamente las bodegas mencionadas: el catálogo de ubicaciones es unívoco Centro/Almacén.
+  const wanted=[...new Set(rows.map(r=>locations.get(r.centro+'|'+r.almacen)?.id).filter(Boolean))];
+  const stockList=wanted.length?(await db.prepare(
+   "SELECT warehouse_id,sap_code,quantity FROM inventory_bulk_stock WHERE warehouse_id IN (SELECT value FROM json_each(?))"
+  ).bind(JSON.stringify(wanted)).all()).results||[]:[];
+  const bulkStock=new Map(stockList.map(r=>[r.warehouse_id+'|'+r.sap_code,Number(r.quantity)]));
+  for(const row of rows){
+   const p=people.get(row.technician_document),w=locations.get(row.centro+'|'+row.almacen),sap=catalog.get(row.sap_code);
+   if(!p)fail(row.line,'Técnico','El técnico no existe, está inactivo o no tiene cargo TÉCNICO.');
+   if(!w)fail(row.line,'Bodega','El Centro / Almacén no corresponde a una bodega propia activa.');
+   if(!sap)fail(row.line,'Código SAP','El SAP no está en la maestra o está inactivo.');
+   if(sap?.serial_profile==='CON PERFIL DE SERIE'&&!row.serial)
+    fail(row.line,'Serial','Este SAP requiere un serial.');
+   if(row.serial){
+    const state=available.get(row.serial);
+    if(!state||state.status!=='DISPONIBLE'||state.assigned||state.sap_code!==row.sap_code||
+       (w&&state.warehouse_id!==w.id))
+     fail(row.line,'Serial','El serial no existe o no está disponible en esa bodega para este SAP.');
+   }else if(w&&sap){
+    const stockKey=w.id+'|'+row.sap_code;
+    bulkTotals.set(stockKey,(bulkTotals.get(stockKey)||0)+row.quantity);
+   }
+   if(!p||!w||!sap)continue;
+   const key=p.id+'|'+w.id+'|'+row.dispatch_date;
+   if(!groups.has(key))groups.set(key,{
+    technician_id:p.id,technician_document:row.technician_document,technician_name:p.full_name,
+    warehouse_id:w.id,warehouse_label:w.centro+' / '+w.almacen+' · '+w.description,
+    dispatch_date:row.dispatch_date,items:[]
+   });
+   groups.get(key).items.push({
+    sap_code:row.sap_code,sap_description:sap.description,
+    serial:row.serial,quantity:row.quantity,notes:row.notes,line:row.line
+   });
+  }
+  for(const [key,total] of bulkTotals){
+   if(total>(bulkStock.get(key)||0)){
+    const representative=rows.find(r=>locations.get(r.centro+'|'+r.almacen)?.id+'|'+r.sap_code===key);
+    fail(representative?.line||0,'Existencias','Se solicitan '+total+' unidades del SAP '+key.split('|').slice(1).join('|')+
+      ' en una bodega con '+(bulkStock.get(key)||0)+' disponibles. Se sumaron TODOS los técnicos.');
+   }
+  }
+ }
+ if(groups.size>100)fail(0,'Despachos','Máximo 100 despachos por archivo; divide la carga en varios archivos.');
+ const summaries=[...groups.values()].map(g=>({
+  technician_document:g.technician_document,technician_name:g.technician_name,
+  warehouse_label:g.warehouse_label,dispatch_date:g.dispatch_date,
+  item_count:g.items.length,units:g.items.reduce((s,it)=>s+it.quantity,0),items:g.items
+ }));
+ return {valid:errors.length===0,errors,groups:[...groups.values()],summaries,
+  totals:{lines:input.rows.length,dispatches:groups.size,
+   technicians:new Set([...groups.values()].map(g=>g.technician_id)).size,
+   units:rows.reduce((sum,r)=>sum+r.quantity,0)}};
+}
+async function dispatchMassExisting(db,id,hash,userId){
+ const batch=await db.prepare("SELECT content_sha,created_by FROM dispatch_mass_batches WHERE id=?").bind(id).first();
+ if(!batch)return null;
+ if(batch.content_sha!==hash||batch.created_by!==userId)return ingBad('LOTE_YA_UTILIZADO',409);
+ const result=await db.prepare(
+  "SELECT d.id,d.reference,d.dispatch_date,p.full_name AS technician_name,p.document_number AS technician_document,"+
+  "w.centro,w.almacen,"+
+  "(SELECT count(*) FROM dispatch_items i WHERE i.dispatch_id=d.id) AS item_count,"+
+  "(SELECT coalesce(sum(i.quantity),0) FROM dispatch_items i WHERE i.dispatch_id=d.id) AS units "+
+  "FROM dispatch_mass_batch_documents b JOIN dispatch_documents d ON d.id=b.dispatch_id "+
+  "JOIN master_personnel p ON p.id=d.technician_id "+
+  "JOIN master_logistics_locations w ON w.id=d.warehouse_id "+
+  "WHERE b.batch_id=? ORDER BY p.full_name,d.reference"
+ ).bind(id).all();
+ const dispatches=result.results||[];
+ return json({ok:true,confirmed:true,replayed:true,operation_id:id,
+  dispatches,totals:{
+   dispatches:dispatches.length,technicians:new Set(dispatches.map(d=>d.technician_document)).size,
+   lines:dispatches.reduce((s,d)=>s+Number(d.item_count),0),
+   units:dispatches.reduce((s,d)=>s+Number(d.units),0)}});
+}
+async function dispatchMassHandler(request,env,user,path){
+ if(request.method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+ const input=await ingBody(request,650000);
+ if(input.error)return ingBad(input.error,input.status);
+ const data=input.data,operationId=String(data.operation_id||'');
+ // Hash de contenido canónico para reintentos seguros tras pérdida de respuesta.
+ if(!data||!Array.isArray(data.rows)||data.rows.length<1||data.rows.length>500)
+  return ingBad('ARCHIVO_INVALIDO',400);
+ const canonical=JSON.stringify(data.rows);
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical));
+ const hash=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
+ const isCommit=path.endsWith('/confirmar');
+ if(isCommit&&/^[0-9a-f-]{36}$/i.test(operationId)){
+  const previous=await dispatchMassExisting(env.DB,operationId,hash,user.id);
+  if(previous)return previous;
+ }
+ const preview=await dispatchMassPrepare(env.DB,data);
+ if(!preview.valid){
+  if(isCommit)return ingBad('CARGA_MASIVA_INVALIDA',422,{validation:{
+   valid:false,errors:preview.errors,totals:preview.totals}});
+  return json({ok:true,valid:false,errors:preview.errors,
+   totals:preview.totals||{lines:data.rows.length,dispatches:0,technicians:0,units:0},
+   groups:preview.summaries||[]});
+ }
+ if(!isCommit)return json({ok:true,valid:true,errors:[],totals:preview.totals,groups:preview.summaries});
+ const now=new Date().toISOString().slice(0,10).replace(/-/g,'');
+ const docs=preview.groups.map(g=>{
+  const id=crypto.randomUUID();
+  return {id,reference:'DES-'+now+'-'+id.slice(0,8).toUpperCase(),
+   technician_id:g.technician_id,warehouse_id:g.warehouse_id,dispatch_date:g.dispatch_date,
+   notes:'Asignación por carga masiva',items:g.items};
+ });
+ const itemRows=docs.flatMap(doc=>doc.items.map((item,position)=>({
+  id:crypto.randomUUID(),dispatch_id:doc.id,position:position+1,
+  sap_code:item.sap_code,serial:item.serial,quantity:item.quantity,notes:item.notes
+ })));
+ const slimDocs=docs.map(({items,...rest})=>rest);
+ const docJson=JSON.stringify(slimDocs),itemJson=JSON.stringify(itemRows);
+ const statements=[
+  env.DB.prepare("INSERT INTO dispatch_mass_batches(id,content_sha,created_by) VALUES (?,?,?)")
+   .bind(operationId,hash,user.id),
+  env.DB.prepare(
+   "INSERT INTO dispatch_documents(id,reference,technician_id,warehouse_id,dispatch_date,notes,created_by,updated_by) "+
+   "SELECT json_extract(value,'$.id'),json_extract(value,'$.reference'),json_extract(value,'$.technician_id'),"+
+   "json_extract(value,'$.warehouse_id'),json_extract(value,'$.dispatch_date'),json_extract(value,'$.notes'),?,? "+
+   "FROM json_each(?)"
+  ).bind(user.id,user.id,docJson),
+  env.DB.prepare(
+   "INSERT INTO dispatch_items(id,dispatch_id,position,sap_code,serial,quantity,notes) "+
+   "SELECT json_extract(value,'$.id'),json_extract(value,'$.dispatch_id'),json_extract(value,'$.position'),"+
+   "json_extract(value,'$.sap_code'),json_extract(value,'$.serial'),json_extract(value,'$.quantity'),"+
+   "json_extract(value,'$.notes') FROM json_each(?)"
+  ).bind(itemJson)
+ ];
+ // SQL triggers vuelven a comprobar existencias y seriales DENTRO de la transacción;
+ // un problema en cualquier técnico anula todos los despachos del Excel.
+ for(const doc of docs)
+  statements.push(env.DB.prepare(
+   "UPDATE dispatch_documents SET status='DESPACHADO',confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,"+
+   "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='BORRADOR'"
+  ).bind(user.id,doc.id));
+ statements.push(env.DB.prepare(
+  "INSERT INTO dispatch_audit(id,dispatch_id,actor_id,action,details) "+
+  "SELECT lower(hex(randomblob(16))),json_extract(value,'$.id'),?,'DESPACHAR',? FROM json_each(?)"
+ ).bind(user.id,JSON.stringify({source:'MASIVO',operation_id:operationId}),docJson));
+ statements.push(env.DB.prepare(
+  "INSERT INTO dispatch_mass_batch_documents(batch_id,dispatch_id) "+
+  "SELECT ?,json_extract(value,'$.id') FROM json_each(?)"
+ ).bind(operationId,docJson));
+ try{await env.DB.batch(statements);}
+ catch(error){
+  const existing=await dispatchMassExisting(env.DB,operationId,hash,user.id);
+  if(existing)return existing;
+  return ingBad('CARGA_MASIVA_REVALIDAR',409);
+ }
+ return dispatchMassExisting(env.DB,operationId,hash,user.id);
+}
 async function dispatchHandler(request,env,user,path){
  if(!user)return ingBad('NO_AUTENTICADO',401);
  if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
  const db=env.DB,method=request.method;
+ if(path==='/api/despachos/masivo/validar'||path==='/api/despachos/masivo/confirmar')
+  return dispatchMassHandler(request,env,user,path);
  if(path==='/api/despachos/catalogos'){
   if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
   const [people,warehouses,serials,bulk]=await Promise.all([

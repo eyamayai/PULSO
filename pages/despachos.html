@@ -13,6 +13,7 @@
 <script src="/inicio-session.js" defer></script>
 <script src="/exceljs.min.js" defer></script>
 <script src="/despachos.js" defer></script>
+<script src="/despachos-masivo.js" defer></script>
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
@@ -123,7 +124,8 @@
         <div class="income-panel dispatch-action-panel">
           <h3><span class="dispatch-small-icon">ϟ</span> Acciones rápidas</h3>
           <button class="income-button primary" id="dispatch-new" type="button">＋ Nuevo despacho a técnico</button>
-          <p class="dispatch-action-note">Para asignar varios equipos a un mismo técnico puedes seleccionarlos o cargar su Excel desde el paso 2 del nuevo despacho.</p>
+          <button class="income-button ghost" id="dispatch-mass-open" type="button">⇧ Despachos masivos a técnicos</button>
+          <p class="dispatch-action-note">La carga masiva crea varios despachos, uno por técnico, bodega y fecha, después de validar todo el Excel.</p>
         </div>
         <div class="income-panel dispatch-chart-panel">
           <h3><span class="dispatch-small-icon">▣</span> Equipos por estado</h3>
@@ -222,6 +224,76 @@
         <button id="dispatch-next" class="income-button primary" type="button">Siguiente →</button>
         <button id="dispatch-confirm" class="income-button primary" type="button" hidden>Confirmar despacho</button>
       </div>
+    </div>
+  </section>
+
+
+  <section id="dispatch-mass" class="dispatch-screen" hidden aria-labelledby="dispatch-mass-title">
+    <div class="ingress-back-heading">
+      <button class="ingress-back" id="dispatch-mass-back" type="button" aria-label="Regresar a Despachos">‹</button>
+      <div>
+        <div class="income-eyebrow">OPERACIÓN LOGÍSTICA · CARGA CONTROLADA</div>
+        <h2 id="dispatch-mass-title">Despachos masivos a técnicos</h2>
+        <p>Un solo Excel, varios técnicos y confirmación conjunta de todas las asignaciones.</p>
+      </div>
+      <span class="dispatch-soft-badge" id="dispatch-mass-status">Sin archivo</span>
+    </div>
+    <div class="dispatch-mass-steps" aria-label="Etapas de carga masiva">
+      <span class="current">1 · Plantilla y carga</span>
+      <span>2 · Validación y vista previa</span>
+      <span>3 · Confirmación conjunta</span>
+    </div>
+    <div class="dispatch-mass-tools">
+      <div class="income-panel dispatch-mass-card">
+        <div class="income-eyebrow">PASO 1</div>
+        <h2>Plantilla de despachos masivos</h2>
+        <p>Indica la identificación del técnico, el Centro, el Almacén, fecha, SAP, serial y cantidad. Puedes repetir un técnico en varias filas.</p>
+        <button class="income-button ghost" id="dispatch-mass-template" type="button">↓ Descargar plantilla Excel</button>
+        <small class="dispatch-mass-tip">Usa códigos y seriales exactos. Una fila por serial; cantidad 1 para equipos serializados. Las observaciones son opcionales.</small>
+      </div>
+      <div class="income-panel dispatch-mass-card">
+        <div class="income-eyebrow">PASO 2</div>
+        <h2>Cargar y validar archivo</h2>
+        <p>PULSO comprueba técnicos activos, bodegas propias, SAP, seriales repetidos y existencias suficientes para todos los técnicos.</p>
+        <input id="dispatch-mass-file" type="file" accept=".xlsx" hidden>
+        <button class="income-button primary" id="dispatch-mass-upload" type="button">⇧ Seleccionar archivo Excel</button>
+        <small id="dispatch-mass-file-name" class="dispatch-mass-tip">Ningún archivo seleccionado · Máximo 500 filas y 100 despachos por carga.</small>
+      </div>
+    </div>
+    <div id="dispatch-mass-alert" class="dispatch-mass-alert" hidden role="alert" aria-live="polite"></div>
+    <div id="dispatch-mass-preview" class="income-panel dispatch-mass-preview" hidden>
+      <div class="dispatch-mass-preview-heading">
+        <div><div class="income-eyebrow">VISTA PREVIA · NO SE HA DESPACHADO NADA</div>
+          <h2>Asignaciones que se crearán</h2>
+          <p>Revisa cada técnico, bodega y equipo antes de confirmar.</p>
+        </div>
+        <span class="dispatch-soft-badge" id="dispatch-mass-preview-state">Pendiente</span>
+      </div>
+      <div class="dispatch-mass-stats">
+        <div><small>Técnicos</small><strong id="dispatch-mass-techs">0</strong></div>
+        <div><small>Despachos</small><strong id="dispatch-mass-dispatches">0</strong></div>
+        <div><small>Ítems</small><strong id="dispatch-mass-lines">0</strong></div>
+        <div><small>Unidades</small><strong id="dispatch-mass-units">0</strong></div>
+      </div>
+      <div id="dispatch-mass-groups" class="dispatch-mass-groups"></div>
+      <div id="dispatch-mass-errors" class="dispatch-mass-error-list" hidden></div>
+      <div class="dispatch-mass-confirm-area">
+        <label class="dispatch-mass-check"><input type="checkbox" id="dispatch-mass-ack" disabled>
+          Verifiqué los técnicos, bodegas, seriales y cantidades. Autorizo registrar todos los despachos de esta carga.</label>
+        <button class="income-button primary" id="dispatch-mass-confirm" type="button" disabled>Confirmar todos los despachos</button>
+      </div>
+    </div>
+    <div id="dispatch-mass-success" class="income-panel dispatch-mass-success" hidden role="status">
+      <div class="dispatch-mass-success-head"><span class="dispatch-mass-success-icon">✓</span>
+        <div><h2>Despachos masivos confirmados</h2><p id="dispatch-mass-success-text">Las asignaciones fueron registradas.</p></div>
+      </div>
+      <div class="ingress-table-wrap dispatch-mass-results">
+        <table class="ingress-table" aria-label="Despachos masivos confirmados">
+          <thead><tr><th>Referencia</th><th>Técnico</th><th>Bodega</th><th>Fecha</th><th>Ítems</th><th>Unidades</th></tr></thead>
+          <tbody id="dispatch-mass-success-list"></tbody>
+        </table>
+      </div>
+      <button id="dispatch-mass-done" class="income-button primary" type="button">Ver movimientos en Despachos</button>
     </div>
   </section>
 
