@@ -69,7 +69,7 @@
     head.replaceChildren();body.replaceChildren();
     const titles=personal
       ?['Seleccionar','Identificación','Nombre','Cargo','Departamento','Zona / ciudad','Supervisor','Acceso PULSO','Estado','Acciones']
-      :['Código SAP','Descripción','Tipo','Perfil','Unidad','Familia','Estado','Acciones'];
+      :['Código SAP','Descripción','Tipo','Perfil','Unidad','Familia','Valor del equipo (COP)','Estado','Acciones'];
     const tr=document.createElement('tr');
     for(const h of titles){
       const th=document.createElement('th');
@@ -111,6 +111,8 @@
         cell(row,item.serial_profile);
         cell(row,item.unit);
         cell(row,item.family||'—');
+        cell(row,item.unit_value_cents===null||item.unit_value_cents===undefined?'Sin valor':
+          new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:2,maximumFractionDigits:2}).format(item.unit_value_cents/100));
       }
       if(personal){
         const status=item.access_user_id
@@ -207,6 +209,7 @@
       $('sap-profile').value=item?.serial_profile||'CON PERFIL DE SERIE';
       $('sap-unit').value=item?.unit||'UND';
       $('sap-family').value=item?.family||'';
+      $('sap-value').value=item?.unit_value_cents===null||item?.unit_value_cents===undefined?'':(item.unit_value_cents/100).toFixed(2);
     }
     dialogError('');
     $('record-dialog').showModal();
@@ -225,7 +228,7 @@
     }:{
       sap_code:val('sap-code'),description:val('sap-description'),
       item_type:val('sap-type'),serial_profile:val('sap-profile'),
-      unit:val('sap-unit'),family:val('sap-family'),
+      unit:val('sap-unit'),family:val('sap-family'),unit_value:val('sap-value'),
       is_active:$('record-active').checked
     };
     if(editing)data.id=editing.id;
@@ -264,7 +267,7 @@
   window.addEventListener('pulso:maestras-imported',async e=>{
     setTab(e.detail.kind==='BODEGAS'?'bodegas':e.detail.kind==='CATALOGO'?'catalogo':'personal');
     await refresh();
-    message('Carga masiva completada: '+e.detail.count+' registros.');
+    message('Carga completada: '+(e.detail.inserted??e.detail.count??0)+' nuevos, '+(e.detail.updated??0)+' valores actualizados, '+(e.detail.unchanged??0)+' sin cambios.');
   });
   setTab('personal');
   void refresh();

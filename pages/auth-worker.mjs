@@ -170,7 +170,20 @@ function normalizePersonnel(d) {
   }
   return o;
 }
+function parseUnitValueCents(value){
+ if(value===null||value===undefined||value==='')return null;
+ if(typeof value!=='number'&&typeof value!=='string')return NaN;
+ const raw=String(value).trim();
+ if(!raw)return null;
+ if(!/^[0-9]{1,10}(?:\.[0-9]{1,2})?$/.test(raw))return NaN;
+ const [major,minor='']=raw.split('.');
+ const cents=Number(major)*100+Number(minor.padEnd(2,'0'));
+ return Number.isSafeInteger(cents)&&cents<=999999999999?cents:NaN;
+}
 function normalizeCatalog(d){
+ const valueCents=Object.hasOwn(d,'unit_value')?parseUnitValueCents(d.unit_value):
+  (d.unit_value_cents===null||d.unit_value_cents===undefined?null:
+   (Number.isSafeInteger(d.unit_value_cents)&&d.unit_value_cents>=0&&d.unit_value_cents<=999999999999?d.unit_value_cents:NaN));
   const o={
     sap_code:trimmed(d.sap_code,50).toUpperCase(),
     description:trimmed(d.description,220),
@@ -178,13 +191,14 @@ function normalizeCatalog(d){
     serial_profile:trimmed(d.serial_profile,30).toUpperCase(),
     unit:trimmed(d.unit,12).toUpperCase(),
     family:trimmed(d.family,90),
+    unit_value_cents:valueCents,
     is_active:d.is_active===false || d.is_active===0 ? 0 : 1
   };
   if(!/^[A-Z0-9][A-Z0-9._/-]{1,49}$/.test(o.sap_code)||
     o.description.length<3||o.description.length>220||
     !CODE_TYPES.has(o.item_type)||!PROFILE_TYPES.has(o.serial_profile)||
     !/^[A-Z0-9]{1,12}$/.test(o.unit)||
-    o.family.length>90) return null;
+    o.family.length>90||Number.isNaN(o.unit_value_cents)) return null;
   return o;
 }
 async function masterHandler(request,env,user,path){
@@ -211,7 +225,7 @@ async function masterHandler(request,env,user,path){
           LEFT JOIN app_users u ON u.id=l.user_id
           LEFT JOIN auth_passwords pass ON pass.user_id=l.user_id
           ORDER BY p.position DESC,p.full_name COLLATE NOCASE LIMIT 500`).bind(Math.floor(Date.now()/1000)).all()
-      : await env.DB.prepare(`SELECT id,sap_code,description,item_type,serial_profile,unit,family,is_active,created_at,updated_at
+      : await env.DB.prepare(`SELECT id,sap_code,description,item_type,serial_profile,unit,family,unit_value_cents,is_active,created_at,updated_at
           FROM master_sap_catalog ORDER BY description COLLATE NOCASE LIMIT 500`).all();
     return json({ok:true,items:result.results||[]});
   }
@@ -221,7 +235,7 @@ async function masterHandler(request,env,user,path){
   const data=payload.data;
   const allowed=people
     ? ['id','document_number','full_name','position','department','zone','city_base','supervisor_id','email','phone','is_active']
-    : ['id','sap_code','description','item_type','serial_profile','unit','family','is_active'];
+    : ['id','sap_code','description','item_type','serial_profile','unit','family','unit_value','is_active'];
   if(!fieldsOf(data,allowed)||!Object.keys(data).length)return masterBad('CAMPOS_NO_VALIDOS');
   const editing=request.method==='PATCH';
   let old=null;
@@ -284,6 +298,81 @@ const IMPORT_COLUMNS = {
   TECNICOS:['document_number','full_name','department','city_base','supervisor_document','email','phone','is_active'],
   CATALOGO:['sap_code','description','item_type','serial_profile','unit','family','is_active']
 };
+// Carga controlada: si el SAP existe se actualiza exclusivamente su valoración.
+async function bulkCatalogValues(input,env,user){
+ const errors=[],seen=new Map(),source=[];
+ const err=(row,field,message)=>{if(errors.length<40)errors.push({row,field,message});};
+ for(let i=0;i<input.rows.length;i++){
+  const row=i+2,item=input.rows[i];
+  if(!fieldsOf(item,['sap_code','description','item_type','serial_profile','unit','family','is_active','unit_value'])){
+   err(row,'Columnas','Columnas inesperadas o registro inválido');continue;
+  }
+  const code=trimmed(item.sap_code,50).toUpperCase();
+  if(!/^[A-Z0-9][A-Z0-9._/-]{1,49}$/.test(code)){
+   err(row,'Código SAP','Código SAP obligatorio o inválido');continue;
+  }
+  if(item.is_active!==undefined&&![true,false,0,1].includes(item.is_active)){
+   err(row,'Estado','Debe ser Activo o Inactivo');continue;
+  }
+  const cents=parseUnitValueCents(item.unit_value);
+  if(Number.isNaN(cents)){
+   err(row,'Valor del equipo','Usa COP sin separador de miles y máximo dos decimales');continue;
+  }
+  if(seen.has(code)){err(row,'Código SAP','Repetido dentro del Excel (fila '+seen.get(code)+')');continue;}
+  seen.set(code,row);source.push({row,code,cents,item});
+ }
+ const found=source.length?(await env.DB.prepare(
+  "SELECT id,sap_code,unit_value_cents FROM master_sap_catalog WHERE sap_code IN (SELECT value FROM json_each(?))"
+ ).bind(JSON.stringify(source.map(x=>x.code))).all()).results||[]:[];
+ const existing=new Map(found.map(x=>[String(x.sap_code).toUpperCase(),x]));
+ const inserts=[],updates=[];let unchanged=0;
+ for(const entry of source){
+  const old=existing.get(entry.code);
+  if(old){
+   if(entry.cents===null||old.unit_value_cents===entry.cents){unchanged++;continue;}
+   updates.push({id:old.id,audit_id:crypto.randomUUID(),unit_value_cents:entry.cents});
+  }else{
+   const normalized=normalizeCatalog({...entry.item,sap_code:entry.code});
+   if(!normalized){err(entry.row,'Datos','SAP nuevo: diligencia descripción, tipo, perfil y unidad');continue;}
+   inserts.push({...normalized,id:crypto.randomUUID(),audit_id:crypto.randomUUID()});
+  }
+ }
+ if(errors.length){
+  if(input.mode==='validate')return json({ok:true,valid:false,total:input.rows.length,errors});
+  return json({ok:false,error:'ARCHIVO_CON_ERRORES',total:input.rows.length,errors},422);
+ }
+ const stats={total:input.rows.length,inserted:inserts.length,updated:updates.length,unchanged};
+ if(input.mode==='validate')return json({ok:true,valid:true,...stats,errors:[]});
+ const statements=[];
+ if(inserts.length){
+  const fields=['id','sap_code','description','item_type','serial_profile','unit','family','unit_value_cents','is_active'];
+  const data=JSON.stringify(inserts),selects=fields.map(k=>"json_extract(value,'$."+k+"')").join(',');
+  statements.push(env.DB.prepare(
+   'INSERT INTO master_sap_catalog ('+fields.join(',')+',created_by,updated_by) SELECT '+selects+',?,? FROM json_each(?)'
+  ).bind(user.id,user.id,data));
+  statements.push(env.DB.prepare(
+   "INSERT INTO master_audit(id,entity,record_id,action,actor_id,changed_fields) "+
+   "SELECT json_extract(value,'$.audit_id'),'CATALOGO_SAP',json_extract(value,'$.id'),'CREAR',?,? FROM json_each(?)"
+  ).bind(user.id,JSON.stringify(fields),data));
+ }
+ if(updates.length){
+  const data=JSON.stringify(updates);
+  statements.push(env.DB.prepare(
+   "UPDATE master_sap_catalog AS t SET unit_value_cents=json_extract(j.value,'$.unit_value_cents'), "+
+   "updated_by=?,updated_at=CURRENT_TIMESTAMP FROM json_each(?) AS j WHERE t.id=json_extract(j.value,'$.id')"
+  ).bind(user.id,data));
+  statements.push(env.DB.prepare(
+   "INSERT INTO master_audit(id,entity,record_id,action,actor_id,changed_fields) "+
+   "SELECT json_extract(value,'$.audit_id'),'CATALOGO_SAP',json_extract(value,'$.id'),'EDITAR',?,'[\"unit_value_cents\"]' FROM json_each(?)"
+  ).bind(user.id,data));
+ }
+ try{if(statements.length)await env.DB.batch(statements);}
+ catch(e){
+  if(/UNIQUE|constraint|FOREIGN KEY/i.test(String(e)))return masterBad('CONFLICTO_IMPORTACION',409);
+  throw e;
+ }
+ return json({ok:true,...stats},201);
+}
 async function bulkImport(request,env,user){
   if(!user)return masterBad('NO_AUTENTICADO',401);
   if(user.role!=='ADMIN')return masterBad('SIN_PERMISOS',403);
@@ -298,6 +387,7 @@ async function bulkImport(request,env,user){
      !['validate','commit'].includes(input.mode)||!IMPORT_TYPES.has(input.kind)||
      !Array.isArray(input.rows)||input.rows.length<1||input.rows.length>IMPORT_MAX_ROWS ||
      Object.keys(input).some(k=>!['kind','mode','rows'].includes(k)))return masterBad('ARCHIVO_INVALIDO');
+  if(input.kind==='CATALOGO')return bulkCatalogValues(input,env,user);
   const kind=input.kind, personal=kind!=='CATALOGO';
   const allowed=IMPORT_COLUMNS[kind];
   const errors=[];

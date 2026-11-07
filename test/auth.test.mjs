@@ -15,9 +15,10 @@ const sql9=fs.readFileSync(new URL('../cloudflare/migrations/0009_ingresos.sql',
 const sql10=fs.readFileSync(new URL('../cloudflare/migrations/0010_seriales_internos_ingresos.sql',import.meta.url),'utf8');
 const sql11=fs.readFileSync(new URL('../cloudflare/migrations/0011_clasificacion_estados_ingresos.sql',import.meta.url),'utf8');
 const sql12=fs.readFileSync(new URL('../cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql',import.meta.url),'utf8');
+const sql13=fs.readFileSync(new URL('../cloudflare/migrations/0013_valor_unitario_catalogo.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);}
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -1006,4 +1007,66 @@ test('Interfaz: ítems importados en modo consulta y editor explícito por fila'
  assert.match(source,/if\(editingIndex!==null\)\{showMessage\('Aplica o cancela la edición/);
  assert.match(source,/const sap=bySap.get\(n\(draft.sap_code\)\),issues=rowIssues\(index\)/);
  assert.match(html,/Pulsa ✎ para editar una fila/);
+});
+
+
+test('Catálogo: valor en COP, centavos exactos y validación de importes',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const req=(method,data)=>worker.fetch(x.req('/api/maestras/catalogo',{method,data,headers:{cookie}}),x.env);
+ let response=await req('POST',{...sapItem,unit_value:'1250000.25'});
+ assert.equal(response.status,201);
+ const id=(await response.json()).id;
+ assert.equal(x.database.prepare('SELECT unit_value_cents FROM master_sap_catalog WHERE id=?').get(id).unit_value_cents,125000025);
+ response=await req('PATCH',{id,unit_value:'0'});
+ assert.equal(response.status,200);
+ for(const invalid of ['12,50','12.345','-10','99999999999'])
+  assert.equal((await req('PATCH',{id,unit_value:invalid})).status,400,invalid);
+ assert.equal((await (await req('GET')).json()).items[0].unit_value_cents,0);
+});
+test('Catálogo: carga masiva distingue SAP nuevos de SAP existentes; solo actualiza su valor',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ const existing={...bulkSap('0000100001'),unit_value:'150.50'};
+ assert.equal((await importReq(x,cookie,'CATALOGO',[existing],'commit')).status,201);
+ const before=x.database.prepare('SELECT * FROM master_sap_catalog WHERE sap_code=?').get(existing.sap_code);
+ const batch=[
+  {...existing,unit_value:'1250000.99',description:'No cambiar descripción',item_type:'MATERIAL',serial_profile:'SIN PERFIL DE SERIE',is_active:false},
+  {...bulkSap('0000100002'),unit_value:'3499.50'}
+ ];
+ const preview=await (await importReq(x,cookie,'CATALOGO',batch,'validate')).json();
+ assert.equal(preview.valid,true,JSON.stringify(preview));
+ assert.equal(preview.inserted,1);assert.equal(preview.updated,1);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,1);
+ assert.equal(x.database.prepare('SELECT unit_value_cents FROM master_sap_catalog WHERE id=?').get(before.id).unit_value_cents,15050);
+ const result=await importReq(x,cookie,'CATALOGO',batch,'commit');
+ assert.equal(result.status,201,await result.text());
+ const after=x.database.prepare('SELECT * FROM master_sap_catalog WHERE id=?').get(before.id);
+ assert.equal(after.id,before.id);assert.equal(after.description,before.description);
+ assert.equal(after.item_type,before.item_type);assert.equal(after.serial_profile,before.serial_profile);
+ assert.equal(after.unit,before.unit);assert.equal(after.is_active,before.is_active);
+ assert.equal(after.unit_value_cents,125000099);
+ assert.equal(x.database.prepare('SELECT unit_value_cents FROM master_sap_catalog WHERE sap_code=?').get('0000100002').unit_value_cents,349950);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,2);
+ const audit=x.database.prepare("SELECT changed_fields FROM master_audit WHERE record_id=? AND action='EDITAR'").get(before.id);
+ assert.equal(audit.changed_fields,'["unit_value_cents"]');
+});
+test('Catálogo: valor vacío preserva valor previo y errores impiden cambios parciales',async()=>{
+ const x=setup(),cookie=await adminCookie(x),row={...bulkSap('0000200001'),unit_value:'450.20'};
+ assert.equal((await importReq(x,cookie,'CATALOGO',[row],'commit')).status,201);
+ const result=await importReq(x,cookie,'CATALOGO',[{...row,unit_value:''}],'commit');
+ assert.equal(result.status,201);
+ assert.equal((await result.json()).unchanged,1);
+ const batch=[{...row,unit_value:'800.20'},{...bulkSap('0000200002'),unit_value:'12,50'}];
+ assert.equal((await importReq(x,cookie,'CATALOGO',batch,'commit')).status,422);
+ assert.equal(x.database.prepare('SELECT unit_value_cents FROM master_sap_catalog WHERE sap_code=?').get(row.sap_code).unit_value_cents,45020);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,1);
+ assert.equal((await importReq(x,cookie,'CATALOGO',[row,row],'commit')).status,422);
+});
+test('Catálogo: nueva columna disponible en plantilla, ficha y tabla',()=>{
+ const js=fs.readFileSync(new URL('../pages/maestras.js',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/maestras.html',import.meta.url),'utf8');
+ const imp=fs.readFileSync(new URL('../pages/maestras-import.js',import.meta.url),'utf8');
+ assert.match(js,/unit_value:val\('sap-value'\)/);
+ assert.match(html,/id="sap-value"/);
+ assert.match(imp,/\['Valor del equipo','unit_value'\]/);
+ assert.match(imp,/answer.updated/);
 });

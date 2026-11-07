@@ -17,6 +17,7 @@ on:
       - 'cloudflare/migrations/0010_seriales_internos_ingresos.sql'
       - 'cloudflare/migrations/0011_clasificacion_estados_ingresos.sql'
       - 'cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql'
+      - 'cloudflare/migrations/0013_valor_unitario_catalogo.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -57,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -77,6 +78,8 @@ jobs:
           grep -q 'id="warehouse-table"' pages/maestras.html
           grep -q 'id="warehouse-dialog"' pages/maestras.html
           grep -q 'BODEGAS' pages/maestras-import.js
+          grep -q 'Valor del equipo' pages/maestras-import.js
+          grep -q 'id="sap-value"' pages/maestras.html
           grep -q 'for(const item of rows)' pages/maestras-import.js
           grep -q 'id="bulk-preview-count"' pages/maestras.html
           if grep -q 'rows.slice(0,8)' pages/maestras-import.js; then echo 'La vista previa no debe omitir registros' >&2; exit 1; fi
@@ -181,6 +184,12 @@ jobs:
             echo "La clasificación y los estados de recepción ya están instalados"
           fi
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql
+          CATALOG_SCHEMA=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='master_sap_catalog'")
+          if ! printf '%s' "$CATALOG_SCHEMA" | grep -q 'unit_value_cents'; then
+            npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0013_valor_unitario_catalogo.sql
+          else
+            echo "La valoración del catálogo ya está habilitada"
+          fi
 
       - name: Preparar administrador inicial si fue autorizado
         env:

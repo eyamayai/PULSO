@@ -11,7 +11,7 @@
       ['Correo','email'],['Teléfono','phone'],['Estado','is_active']]},
     CATALOGO:{name:'Equipos y Materiales',file:'PULSO_Maestra_Equipos_Materiales.xlsx',sheet:'Equipos_Materiales',columns:[
       ['Código SAP','sap_code'],['Descripción','description'],['Tipo','item_type'],
-      ['Perfil','serial_profile'],['Unidad','unit'],['Familia','family'],['Estado','is_active']]},
+      ['Perfil','serial_profile'],['Unidad','unit'],['Familia','family'],['Estado','is_active'],['Valor del equipo','unit_value']]},
     BODEGAS:{name:'Bodegas y Aliados',file:'PULSO_Maestra_Bodegas_Aliados.xlsx',sheet:'Bodegas_Aliados',columns:[
       ['Centro','centro'],['Almacén','almacen'],['Descripción','description'],
       ['Administración','administration'],['Departamento','department'],['Estado','is_active']]}
@@ -68,6 +68,7 @@
       });
       for(const [,key] of def.columns.map((c,i)=>[i,c[1]])){
         if(['document_number','supervisor_document','sap_code','centro','almacen'].includes(key))ws.getColumn(key).numFmt='@';
+        if(key==='unit_value')ws.getColumn(key).numFmt='#,##0.00 "COP"';
       }
       ws.autoFilter={from:{row:1,column:1},to:{row:1,column:def.columns.length}};
       const buffer=await wb.xlsx.writeBuffer();
@@ -87,7 +88,7 @@
     // Mostrar todas las filas del Excel: la tabla tiene desplazamiento interno.
     for(const item of rows){
       const tr=document.createElement('tr');
-      for(const [,key] of def.columns){const td=document.createElement('td');td.textContent=key==='is_active'?(item.is_active?'ACTIVO':'INACTIVO'):(item[key]||'');tr.append(td);}
+      for(const [,key] of def.columns){const td=document.createElement('td');td.textContent=key==='is_active'?(item.is_active?'ACTIVO':'INACTIVO'):(item[key]??'');tr.append(td);}
       tbody.append(tr);
     }
     $('bulk-preview-count').textContent='Vista previa completa: '+rows.length+' registro'+(rows.length===1?'':'s')+'. Desplázate para revisar todos.';
@@ -174,11 +175,11 @@
       if(!response.ok||!answer.ok)throw new Error('No se pudo procesar el archivo ('+(answer.error||response.status)+').');
       if(mode==='validate'){
         valid=Boolean(answer.valid);
-        result(valid?'Validación correcta: '+answer.total+' registros listos para importar. No se ha guardado nada.':'La validación encontró errores.',''+(valid?'ok':'err'));
+        const info=$('bulk-kind').value==='CATALOGO'?' '+(answer.inserted||0)+' SAP nuevos, '+(answer.updated||0)+' valores por actualizar y '+(answer.unchanged||0)+' sin cambios.':'';
+        result(valid?'Validación correcta: '+answer.total+' registros revisados.'+info+' No se ha guardado nada.':'La validación encontró errores.',''+(valid?'ok':'err'));
       } else {
-        const count=answer.inserted;
         $('bulk-dialog').close();
-        window.dispatchEvent(new CustomEvent('pulso:maestras-imported',{detail:{kind:$('bulk-kind').value,count}}));
+        window.dispatchEvent(new CustomEvent('pulso:maestras-imported',{detail:{kind:$('bulk-kind').value,count:answer.inserted,inserted:answer.inserted,updated:answer.updated||0,unchanged:answer.unchanged||0}}));
       }
     } catch(e){valid=false;result(e.message,'err');}
     finally{checking=false;state();}
@@ -189,7 +190,7 @@
     reset();
     $('bulk-note').textContent=$('bulk-kind').value==='BODEGAS'
       ?'Centro y Almacén únicos. PROPIA: Cesar, La Guajira o San Andrés. ALIADO: cualquier departamento de Colombia o Bogotá D. C.'
-      :'Descarga la plantilla y valida los registros antes de importarlos.';
+      :$('bulk-kind').value==='CATALOGO'?'Para SAP existentes solo se actualiza el valor en COP. Valor vacío conserva el anterior. Los nuevos requieren todos los datos.':'Descarga la plantilla y valida los registros antes de importarlos.';
     $('bulk-dialog').showModal();
   });
   $('bulk-kind').addEventListener('change',()=>{
@@ -200,7 +201,7 @@
       ?'Carga primero los supervisores y después los técnicos.'
       :$('bulk-kind').value==='BODEGAS'
       ?'Centro y Almacén únicos. PROPIA: Cesar, La Guajira o San Andrés. ALIADO: cualquier departamento de Colombia o Bogotá D. C.'
-      :'El SAP y su perfil de serie se validarán contra el catálogo existente.';
+      :'Si el SAP existe, solo cambia el valor. Valor vacío conserva el anterior. Para SAP nuevos diligencia todos los datos.';
   });
   $('bulk-file').addEventListener('change',async()=>{
     try{await readFile();}catch(e){rows=[];rowNumbers=[];valid=false;result(e.message,'err');state();}
