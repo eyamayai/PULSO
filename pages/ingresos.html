@@ -148,7 +148,7 @@
        </div>
        <div id="ingress-step-2" class="ingress-step-view" hidden>
         <div class="income-eyebrow">PASO 2 DE 4</div><h2>Ítems</h2>
-        <p class="income-subtitle">Indica el lote y el estado de recepción por ítem. Cada serial identifica una unidad (cantidad 1). Al registrar, el estado físico será BUENO y la disponibilidad DISPONIBLE automáticamente.</p>
+        <p class="income-subtitle">Los datos importados desde Excel se muestran en modo consulta. Usa el lápiz al final de una fila únicamente si necesitas corregirla. El lote y el estado de recepción siguen siendo obligatorios.</p>
         <div class="ingress-item-tools">
           <button type="button" id="ing-item-add" class="income-button primary small">＋ Agregar ítem</button>
           <button type="button" id="ing-item-import" class="income-button secondary small">Cargar desde Excel</button>
@@ -156,10 +156,10 @@
           <input type="file" id="ing-item-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         </div>
         <div class="ingress-table-wrap ingress-item-table-wrap">
-         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Lote *</th><th>Estado de recepción *</th><th>Observaciones (opcional)</th><th>Estado</th><th></th></tr></thead><tbody id="ing-item-table"></tbody></table>
+         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Lote *</th><th>Estado de recepción *</th><th>Observaciones (opcional)</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="ing-item-table"></tbody></table>
         </div>
         <datalist id="ing-sap-list"></datalist>
-        <p class="income-small-note" id="ing-item-note">Selecciona un SAP de la maestra. Los ítems pueden quedar incompletos mientras sean borrador.</p>
+        <p class="income-small-note" id="ing-item-note">Los valores están protegidos contra cambios accidentales. Pulsa ✎ para editar una fila, ✓ para aplicar o ↶ para cancelar; después guarda el borrador para validar.</p>
         <div class="income-line-summary"><span id="ing-item-total">0 ítems</span><span id="ing-unit-total">0 unidades</span></div>
        </div>
        <div id="ingress-step-3" class="ingress-step-view" hidden>

@@ -210,3 +210,39 @@
 .ingress-item-table-wrap td:nth-child(6){min-width:155px}
 .ingress-item-table-wrap td:nth-child(7){min-width:172px}
 .ing-confirm-table .ingress-table{min-width:830px}
+
+
+/* Tabla segura: solo el ítem que usa el lápiz presenta campos editables. */
+.ingress-item-table-wrap .ingress-table{min-width:1330px}
+.ingress-item-table-wrap .ingress-read-value{
+ display:block;min-height:34px;max-width:255px;padding:9px 6px;
+ color:#214e42;font-size:11px;font-weight:650;line-height:1.4;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;user-select:text;
+}
+.ingress-item-table-wrap .ingress-read-value.empty{font-weight:500;color:#91a49a}
+.ingress-item-table-wrap tr.ingress-item-editing{background:#fffaf0}
+.ingress-item-table-wrap tr.ingress-item-invalid:not(.ingress-item-editing){background:#fffaf4}
+.ingress-item-table-wrap .ingress-pill.editing{background:#fff0cd;color:#98601e}
+.ingress-item-table-wrap th:last-child,.ingress-item-table-wrap td:last-child{
+ position:sticky;right:0;background:#fff;z-index:1;
+ box-shadow:-6px 0 12px -10px #0b413d7a;min-width:107px;text-align:center;
+}
+.ingress-item-table-wrap th:last-child{background:#f5f9f7;z-index:2}
+.ingress-item-table-wrap tr.ingress-item-editing td:last-child{background:#fffaf0}
+.ingress-item-table-wrap tr.ingress-item-invalid:not(.ingress-item-editing) td:last-child{background:#fffaf4}
+.ingress-item-actions{display:flex;align-items:center;justify-content:center;gap:6px}
+.ingress-item-actions button{
+ width:35px;height:35px;display:grid;place-items:center;border-radius:9px;
+ font-size:18px;font-weight:850;transition:background .15s;
+}
+.ingress-item-actions button:focus-visible{outline:2px solid #007e60;outline-offset:2px}
+.ingress-item-actions button:disabled{cursor:not-allowed;opacity:.35}
+.ingress-item-edit{border:1px solid #bdded0;background:#edf9f2;color:#078366}
+.ingress-item-edit:hover:not(:disabled){background:#dbf3e7}
+.ingress-item-apply{border:1px solid #0c8868;background:#078569;color:#fff}
+.ingress-item-apply:hover{background:#026b54}
+.ingress-item-cancel{border:1px solid #d3ddd6;background:#f5f7f5;color:#476e60}
+.ingress-item-cancel:hover{background:#e8efe9}
+.ingress-item-actions .ingress-item-remove{
+ border:1px solid #f4dfd9;background:#fff1ec;color:#ab5038;
+}

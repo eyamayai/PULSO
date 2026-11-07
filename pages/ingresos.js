@@ -5,6 +5,7 @@
   const DOC_TYPES={NUMERO_PEDIDO:'Número de Pedido',ORDEN_COMPRA:'Orden de compra',FACTURA:'Factura',REMISION:'Remisión',ACTA_ENTREGA:'Acta de entrega',OTRO:'Otro'};
   let catalog=[],warehouse=[],bySap=new Map(),byWarehouse=new Map(),list=[];
   let id='',status='BORRADOR',step=1,items=[],support={size:0,filename:''},validation=null,dirty=false,busy=false;
+  let editingIndex=null,editingDraft=null,editingNew=false;
   const text=(id,value)=>{$(id).textContent=String(value??'');};
   const elt=(tag,value,cls)=>{const x=document.createElement(tag);if(value!==undefined)x.textContent=String(value);if(cls)x.className=cls;return x;};
   const n=v=>String(v??'').trim().toUpperCase();
@@ -178,46 +179,74 @@
     if(child instanceof Node)td.append(child);else td.textContent=String(child??'');
     tr.append(td);return td;
   }
-  function itemField(item,key,index){
+  // Lectura de Excel protegida: editar únicamente una copia temporal por fila.
+  const itemKeys=['sap_code','serial','quantity','lot','reception_state','notes'];
+  const itemLabels={sap_code:'Código SAP',serial:'Serial',quantity:'Cantidad',lot:'Lote',reception_state:'Estado de recepción',notes:'Observaciones'};
+  function rowIssues(index){return (validation?.errors||[]).filter(issue=>issue.index===index);}
+  function viewItemValue(item,key){
+    const value=key==='reception_state'
+      ?(n(item[key])==='REMANUFACTURADO'?'Remanufacturado':n(item[key])==='NUEVO'?'Nuevo':'')
+      :String(item[key]??'').trim();
+    const span=elt('span',value||'—','ingress-read-value'+(!value?' empty':''));
+    span.title=value||'Sin información';
+    span.setAttribute('aria-label',itemLabels[key]+': '+(value||'Sin información'));
+    return span;
+  }
+  function itemEditorField(draft,key,index){
     const isSelect=key==='lot'||key==='reception_state';
     const field=document.createElement(isSelect?'select':'input');
     if(isSelect){
-      const options=key==='lot'
+      const values=key==='lot'
         ?[['','Seleccionar lote...'],['VALORADO','VALORADO'],['NOVALORADO','NOVALORADO']]
         :[['','Seleccionar estado...'],['NUEVO','Nuevo'],['REMANUFACTURADO','Remanufacturado']];
-      for(const [value,label] of options)field.add(new Option(label,value));
+      values.forEach(([value,label])=>field.add(new Option(label,value)));
       field.className='ingress-classification';
-      field.setAttribute('aria-label',(key==='lot'?'Lote':'Estado de recepción')+' ítem '+(index+1));
     }else field.type=key==='quantity'?'number':'text';
-    field.value=String(item[key]??'');
-    field.disabled=status!=='BORRADOR';
+    field.value=String(draft[key]??'');
+    field.setAttribute('aria-label','Editar '+itemLabels[key]+' del ítem '+(index+1));
     if(key==='sap_code'){
-      field.className='sap-input';
-      field.maxLength=50;field.setAttribute('list','ing-sap-list');
-      field.setAttribute('aria-label','SAP ítem '+(index+1));
-    } else if(key==='serial'){
+      field.className='sap-input';field.maxLength=50;field.setAttribute('list','ing-sap-list');
+    }else if(key==='serial'){
       field.className='serial-input';field.maxLength=100;
-      field.setAttribute('aria-label','Serial ítem '+(index+1));
-    } else if(key==='quantity'){
-      field.className='quantity-input';field.min=0;field.step=1;field.max=1000000;
-      field.setAttribute('aria-label','Cantidad ítem '+(index+1));
-    }else if(key==='notes'){field.maxLength=240;field.setAttribute('aria-label','Observaciones ítem '+(index+1));}
+    }else if(key==='quantity'){
+      field.className='quantity-input';field.min=1;field.max=1000000;field.step=1;
+    }else if(key==='notes')field.maxLength=240;
     field.addEventListener(isSelect?'change':'input',()=>{
-      item[key]=key==='quantity'?(field.value===''?0:Number(field.value)):field.value;
-      setDirty();
-      if(key==='sap_code'||key==='quantity'||key==='serial'||isSelect){
-        const tr=field.closest('tr');const sap=bySap.get(n(item.sap_code));
-        const desc=tr.querySelector('.income-item-description');
-        const profile=tr.querySelector('.income-item-profile');
-        desc.textContent=sap?.description||'SAP no encontrado';
-        profile.textContent=sap?.serial_profile||'Sin clasificar';
-        const ok=itemComplete(item);
-        tr.querySelector('.ingress-pill').textContent=ok?'Completo':'Revisar';
-        tr.querySelector('.ingress-pill').className=ok?'ingress-pill':'ingress-pill draft';
+      draft[key]=key==='quantity'?(field.value===''?0:Number(field.value)):field.value;
+      if(key==='sap_code'){
+        const tr=field.closest('tr'),sap=bySap.get(n(draft.sap_code));
+        tr.querySelector('.income-item-description').textContent=sap?.description||'SAP no encontrado';
+        tr.querySelector('.income-item-profile').textContent=sap?.serial_profile||'Sin clasificar';
       }
-      if(key==='quantity'||key==='serial'||key==='sap_code')refreshItemTotals();
     });
     return field;
+  }
+  function beginItemEdit(index,isNew=false){
+    if(status!=='BORRADOR'||index<0||index>=items.length)return;
+    if(editingIndex!==null){
+      showMessage('Aplica o cancela primero la edición del ítem '+(editingIndex+1)+'.',true);return;
+    }
+    editingIndex=index;editingDraft={...items[index]};editingNew=isNew;
+    renderItems();
+    $('ing-item-table').querySelector('[data-item-index="'+index+'"] .sap-input')?.focus({preventScroll:true});
+  }
+  function applyItemEdit(){
+    if(editingIndex===null||status!=='BORRADOR')return;
+    const index=editingIndex,quantity=Number(editingDraft.quantity);
+    if(!Number.isInteger(quantity)||quantity<1||quantity>1000000){
+      showMessage('Ítem '+(index+1)+': la cantidad debe ser un entero de 1 a 1.000.000.',true);return;
+    }
+    items[index]={...items[index],...editingDraft};
+    editingIndex=null;editingDraft=null;editingNew=false;
+    setDirty();renderItems();
+    showMessage('Corrección aplicada al ítem '+(index+1)+'. Guarda el borrador para validar y conservar el cambio.');
+  }
+  function cancelItemEdit(){
+    if(editingIndex===null)return;
+    if(editingNew)items.splice(editingIndex,1);
+    editingIndex=null;editingDraft=null;editingNew=false;
+    renderItems();
+    showMessage('Edición cancelada. No se modificó el ítem.');
   }
   function refreshItemTotals(){
     text('ing-item-total',items.length+' ítem'+(items.length===1?'':'s'));
@@ -226,29 +255,57 @@
   function renderItems(){
     const body=$('ing-item-table');body.replaceChildren();
     items.forEach((item,index)=>{
-      const sap=bySap.get(n(item.sap_code));
-      const tr=document.createElement('tr');tr.dataset.itemIndex=String(index);
+      const isEditing=editingIndex===index,draft=isEditing?editingDraft:item;
+      const sap=bySap.get(n(draft.sap_code)),issues=rowIssues(index);
+      const tr=elt('tr');tr.dataset.itemIndex=String(index);
+      if(issues.length)tr.classList.add('ingress-item-invalid');
+      if(isEditing)tr.classList.add('ingress-item-editing');
       cell(tr,index+1);
-      cell(tr,itemField(item,'sap_code',index));
-      const info=document.createElement('div');
+      cell(tr,isEditing?itemEditorField(draft,'sap_code',index):viewItemValue(item,'sap_code'));
+      const info=elt('div');
       info.append(elt('span',sap?.description||'SAP no encontrado','income-item-description'));
       info.append(elt('small',sap?.serial_profile||'Sin clasificar','income-item-profile'));
       cell(tr,info);
-      cell(tr,itemField(item,'serial',index));
-      cell(tr,itemField(item,'quantity',index));
-      cell(tr,itemField(item,'lot',index));
-      cell(tr,itemField(item,'reception_state',index));
-      cell(tr,itemField(item,'notes',index));
-      const ok=itemComplete(item);
-      cell(tr,elt('span',ok?'Completo':'Revisar',ok?'ingress-pill':'ingress-pill draft'));
-      const remove=elt('button','×','ingress-item-remove');remove.type='button';remove.disabled=status!=='BORRADOR';
-      remove.title='Eliminar ítem '+(index+1);
-      remove.addEventListener('click',()=>{items.splice(index,1);setDirty();renderItems();});
-      cell(tr,remove);body.append(tr);
+      for(const key of itemKeys.slice(1))
+        cell(tr,isEditing?itemEditorField(draft,key,index):viewItemValue(item,key));
+      const ok=itemComplete(item)&&!issues.length;
+      const pill=elt('span',isEditing?'Editando':ok?'Completo':'Revisar',
+        isEditing?'ingress-pill editing':ok?'ingress-pill':'ingress-pill draft');
+      if(issues.length)pill.title=issues.map(issue=>issue.message).join(' | ');
+      cell(tr,pill);
+      const actions=elt('div',undefined,'ingress-item-actions');
+      if(status==='BORRADOR'){
+        if(isEditing){
+          const apply=elt('button','✓','ingress-item-apply');
+          apply.type='button';apply.title='Aplicar corrección del ítem '+(index+1);
+          apply.setAttribute('aria-label',apply.title);
+          apply.addEventListener('click',applyItemEdit);
+          const cancel=elt('button','↶','ingress-item-cancel');
+          cancel.type='button';cancel.title='Cancelar edición del ítem '+(index+1);
+          cancel.setAttribute('aria-label',cancel.title);
+          cancel.addEventListener('click',cancelItemEdit);
+          actions.append(apply,cancel);
+        }else{
+          const edit=elt('button','✎','ingress-item-edit');
+          edit.type='button';edit.title='Editar ítem '+(index+1);
+          edit.setAttribute('aria-label',edit.title);edit.disabled=editingIndex!==null;
+          edit.addEventListener('click',()=>beginItemEdit(index));
+          const remove=elt('button','×','ingress-item-remove');
+          remove.type='button';remove.title='Eliminar ítem '+(index+1);
+          remove.setAttribute('aria-label',remove.title);remove.disabled=editingIndex!==null;
+          remove.addEventListener('click',()=>{
+            if(!confirm('¿Eliminar el ítem '+(index+1)+' del borrador?'))return;
+            items.splice(index,1);setDirty();renderItems();
+            showMessage('Ítem eliminado del borrador. Guarda para conservar el cambio.');
+          });
+          actions.append(edit,remove);
+        }
+      }
+      cell(tr,actions);body.append(tr);
     });
     refreshItemTotals();
-    $('ing-item-add').disabled=status!=='BORRADOR';
-    $('ing-item-import').disabled=status!=='BORRADOR';
+    $('ing-item-add').disabled=status!=='BORRADOR'||editingIndex!==null;
+    $('ing-item-import').disabled=status!=='BORRADOR'||editingIndex!==null;
   }
   function renderValidation(){
     const el=$('ing-validation-list'),head=$('ing-validation-head');el.replaceChildren();
@@ -327,6 +384,7 @@
     showMessage('');
   }
   async function saveDraft({quiet=false}={}){
+    if(editingIndex!==null){showMessage('Aplica o cancela la edición del ítem '+(editingIndex+1)+' antes de guardar.',true);return false;}
     if(status!=='BORRADOR'||!id)return true;
     const button=$('ing-save');button.disabled=true;
     text('ingress-save-indicator','Guardando...');
@@ -334,7 +392,7 @@
       const output=await api('/'+id,{method:'PATCH',data:{document:getDoc(),items}});
       dirty=false;validation=output.validation;
       text('ingress-save-indicator','Borrador guardado');
-      renderSummary();renderValidation();renderConfirmation();
+      renderItems();renderSummary();renderValidation();renderConfirmation();
       if(!quiet)showMessage('Borrador guardado. Todavía no afecta las existencias.');
       return true;
     }catch(e){
@@ -352,10 +410,11 @@
         validation=(await api('/'+id+'/validar')).validation;
       }catch(err){showMessage(err.message,true);return;}
     }
-    setStep(next);
+    setStep(next);renderItems();
     if(next===2&&Number.isInteger(index)){
       const row=$('ing-item-table').querySelector('[data-item-index="'+index+'"]');
-      if(row){row.scrollIntoView({block:'nearest'});row.querySelector('.sap-input')?.focus();}
+      row?.scrollIntoView({block:'nearest'});
+      if(status==='BORRADOR')beginItemEdit(index);
     }
     renderSummary();
   }
@@ -371,6 +430,7 @@
     try{
       const data=await api('/'+entryId);
       id=entryId;status=data.document.status;
+      editingIndex=null;editingDraft=null;editingNew=false;
       support={size:data.document.support_size||0,filename:data.document.support_filename||''};
       validation=data.validation;
       items=(data.items||[]).map(x=>({
@@ -400,7 +460,7 @@
   }
   async function openIngressAfterCreate(createdId){
     const data=await api('/'+createdId);
-    id=createdId;status='BORRADOR';support={size:0,filename:''};validation=data.validation;items=[];
+    id=createdId;status='BORRADOR';editingIndex=null;editingDraft=null;editingNew=false;support={size:0,filename:''};validation=data.validation;items=[];
     setDoc(data.document);dirty=false;
     text('ingress-reference-label','Borrador · '+id.slice(0,8));
     text('income-wizard-title','Nuevo ingreso');
@@ -412,6 +472,7 @@
     setStep(1);
   }
   async function goHome(){
+    if(editingIndex!==null){showMessage('Aplica o cancela la edición del ítem '+(editingIndex+1)+' antes de salir.',true);return;}
     if(status==='BORRADOR'&&dirty&&!await saveDraft({quiet:true}))return;
     $('ingress-wizard').hidden=true;$('ingress-home').hidden=false;id='';
     try{list=(await api('')).items||[];renderList();}
@@ -464,7 +525,7 @@
       showMessage('Ingreso '+result.reference+' registrado. Inventario actualizado correctamente.');
     }catch(e){
       showMessage(e.message,true);
-      if(e.details?.validation){validation=e.details.validation;renderValidation();renderSummary();renderConfirmation();}
+      if(e.details?.validation){validation=e.details.validation;renderItems();renderValidation();renderSummary();renderConfirmation();}
     }finally{busy=false;if(status==='BORRADOR')renderConfirmation();}
   }
   async function itemTemplate(){
@@ -510,6 +571,7 @@
   }
   async function importItems(file){
     if(!file||status!=='BORRADOR')return;
+    if(editingIndex!==null){showMessage('Aplica o cancela la edición actual antes de importar.',true);$('ing-item-file').value='';return;}
     if(!window.ExcelJS){showMessage('No se pudo cargar el lector Excel.',true);return;}
     if(file.size>5*1024*1024){showMessage('El Excel no debe superar 5 MB.',true);return;}
     try{
@@ -554,10 +616,9 @@
     $('ing-confirm').addEventListener('click',()=>void confirmIngress());
     $('ing-confirm-ack').addEventListener('change',renderConfirmation);
     $('ing-item-add').addEventListener('click',()=>{
-      if(status==='BORRADOR'&&items.length<500){
+      if(status==='BORRADOR'&&editingIndex===null&&items.length<500){
         items.push({sap_code:'',serial:'',quantity:1,lot:'',reception_state:'',notes:''});
-        setDirty();renderItems();
-        $('ing-item-table').lastElementChild?.querySelector('.sap-input')?.focus();
+        setDirty();beginItemEdit(items.length-1,true);
       }
     });
     $('ing-item-template').addEventListener('click',itemTemplate);
@@ -577,7 +638,7 @@
       button.addEventListener('click',()=>void navigate(Number(button.dataset.step)));
     });
     window.addEventListener('beforeunload',event=>{
-      if(id&&status==='BORRADOR'&&dirty){event.preventDefault();event.returnValue='';}
+      if(id&&status==='BORRADOR'&&(dirty||editingIndex!==null)){event.preventDefault();event.returnValue='';}
     });
     await initial();
   }

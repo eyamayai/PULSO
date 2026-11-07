@@ -957,3 +957,20 @@ test('Ingresos: PDF privado opcional se adjunta, descarga y retira de borrador',
  assert.equal((await ingApi(x,cookie,'/'+id+'/soporte','DELETE')).status,200);
  assert.equal((await ingApi(x,cookie,'/'+id+'/soporte')).status,404);
 });
+
+
+test('Interfaz: ítems importados en modo consulta y editor explícito por fila',()=>{
+ const source=fs.readFileSync(new URL('../pages/ingresos.js',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/ingresos.html',import.meta.url),'utf8');
+ assert.match(source,/let editingIndex=null,editingDraft=null,editingNew=false/);
+ assert.match(source,/const isEditing=editingIndex===index,draft=isEditing\?editingDraft:item/);
+ assert.match(source,/isEditing\?itemEditorField\(draft,key,index\):viewItemValue\(item,key\)/);
+ assert.match(source,/const edit=elt\('button','✎','ingress-item-edit'\)/);
+ assert.match(source,/const apply=elt\('button','✓','ingress-item-apply'\)/);
+ assert.match(source,/const cancel=elt\('button','↶','ingress-item-cancel'\)/);
+ assert.match(source,/items\[index\]=\{\.\.\.items\[index\],\.\.\.editingDraft\}/);
+ assert.match(source,/if\(editingNew\)items\.splice\(editingIndex,1\)/);
+ assert.match(source,/if\(editingIndex!==null\)\{showMessage\('Aplica o cancela la edición/);
+ assert.match(source,/const sap=bySap.get\(n\(draft.sap_code\)\),issues=rowIssues\(index\)/);
+ assert.match(html,/Pulsa ✎ para editar una fila/);
+});
