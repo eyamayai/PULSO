@@ -144,3 +144,13 @@
  .dispatch-filters>label:not(.ingress-search){flex:1 1 130px;justify-content:space-between}
  .dispatch-filters input[type="date"],.dispatch-filters select{max-width:100%;min-width:0}
 }
+
+
+/* Confirmación definitiva sin botones reutilizables ni falsa alerta de error. */
+.dispatch-confirmed-message{
+ display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+ margin:20px 0 6px;padding:14px 16px;background:#e5f7ec;border:1px solid #b9e3c8;
+ border-radius:11px;color:#0b6e4e;font-size:12px;font-weight:800;line-height:1.5
+}
+.dispatch-confirmed-message[hidden]{display:none!important}
+#dispatch-confirm:disabled{cursor:not-allowed;opacity:.75;background:#b9dcd0;border-color:#b9dcd0;color:#1f6250}

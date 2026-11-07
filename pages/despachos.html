@@ -208,6 +208,10 @@
       <h3 class="dispatch-confirm-items-title">Equipos que recibirá el técnico</h3>
       <div class="ingress-table-wrap dispatch-summary-table"><table class="ingress-table" aria-label="Equipos que recibirá el técnico"><thead><tr><th>SAP</th><th>Descripción</th><th>Serial</th><th>Cantidad</th></tr></thead><tbody id="dispatch-confirm-items"></tbody></table></div>
       <label class="dispatch-ack"><input type="checkbox" id="dispatch-ack"> He revisado los seriales, cantidades, técnico y bodega. Autorizo el despacho.</label>
+      <div id="dispatch-confirmed-message" class="dispatch-confirmed-message" role="status" aria-live="polite" hidden>
+        <span id="dispatch-confirmed-text">✓ Despacho confirmado correctamente.</span>
+        <button id="dispatch-confirmed-detail" class="income-button ghost small" type="button">Ver detalle de asignación</button>
+      </div>
     </div>
     <div id="dispatch-errors" class="dispatch-errors" hidden role="alert" aria-live="polite"></div>
     <div class="income-panel dispatch-footer">

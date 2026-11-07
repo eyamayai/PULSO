@@ -17,6 +17,8 @@
  let records=[],metrics={},technicians=[],warehouses=[],serials=[],bulk=[],technicianSummaries=[],activeEquipment=[];
  let dispatchId='',dispatchStatus='BORRADOR',items=[],step=1,dirty=false,busy=false;
  let currentMode='manual',validation=null,activeTab='recent',pageIndex=0;
+ const confirmingLabel='Confirmar despacho';
+ const confirmedLabel='✓ Despacho confirmado';
  const toast=(message,error=false)=>{
   const el=$('dispatch-toast');el.textContent=message||'';el.hidden=!message;el.classList.toggle('error',error);
  };
@@ -48,6 +50,43 @@
    const err=new Error(errorText(body.error));err.details=body;throw err;
   }
   return body;
+ }
+ function lockConfirmedDispatch(reference){
+  // El despacho ya tiene movimientos reales. No permitir otra solicitud de confirmar.
+  dispatchStatus='DESPACHADO';dirty=false;
+  $('dispatch-confirm').disabled=true;
+  $('dispatch-confirm').textContent=confirmedLabel;
+  $('dispatch-save').disabled=true;
+  $('dispatch-prev').disabled=true;
+  $('dispatch-next').disabled=true;
+  $('dispatch-ack').disabled=true;
+  $('dispatch-confirmed-message').hidden=false;
+  t('dispatch-confirmed-text','✓ Despacho '+(reference||'')+' registrado correctamente. Los equipos ya están asignados al técnico.');
+  t('dispatch-save-status','Despacho registrado');
+ }
+ function resetConfirmControls(){
+  $('dispatch-confirm').disabled=false;
+  $('dispatch-confirm').textContent=confirmingLabel;
+  $('dispatch-save').disabled=false;
+  $('dispatch-prev').disabled=false;
+  $('dispatch-next').disabled=false;
+  $('dispatch-ack').disabled=false;
+  $('dispatch-confirmed-message').hidden=true;
+ }
+ async function showConfirmedDispatch(id,reference){
+  lockConfirmedDispatch(reference);
+  const success='Despacho '+(reference||'')+' registrado correctamente. Puedes consultar la asignación en Ver detalle.';
+  try{
+   const detail=await api('/'+id);
+   if(detail.document.status!=='DESPACHADO')throw new Error('El despacho aún no figura confirmado.');
+   showDetail(detail);
+   display('detail');
+   toast(success);
+  }catch{
+   // POST completó con éxito; un fallo al cargar la vista no revierte la asignación.
+   // Conserva el botón bloqueado y una vía explícita para consultar el detalle.
+   toast(success);
+  }
  }
  const display=(which)=>{
   for(const [id,key] of [['dispatch-home','home'],['dispatch-wizard','wizard'],['dispatch-detail','detail']])
@@ -400,6 +439,8 @@
   counts();
  }
  function setStep(next){
+  if(dispatchStatus==='DESPACHADO')return;
+  resetConfirmControls();
   step=next;
   for(let n=1;n<=4;n++){
    const node=$('dispatch-step-'+(['one','two','three','four'][n-1]));
@@ -424,6 +465,7 @@
    await reload();
    const created=await api('',{method:'POST'});
    dispatchId=created.id;dispatchStatus='BORRADOR';
+   resetConfirmControls();
    currentMode=mode;items=[];dirty=false;validation=null;
    $('dispatch-tech').value='';$('dispatch-warehouse').value='';
    $('dispatch-date').value=dateLocal();$('dispatch-notes').value='';
@@ -479,19 +521,42 @@
  }
  async function confirmDispatch(){
   if(busy)return;
-  if(!$('dispatch-ack').checked){toast('Confirma que revisaste toda la asignación.',true);return;}
+  if(dispatchStatus==='DESPACHADO'){
+   await showConfirmedDispatch(dispatchId,'');
+   return;
+  }
+  if(!$('dispatch-ack').checked){
+   toast('Confirma que revisaste toda la asignación.',true);
+   return;
+  }
   busy=true;
+  const button=$('dispatch-confirm');
+  button.disabled=true;
+  button.textContent='Confirmando despacho...';
   try{
    if(dirty&&!await saveDraft(true))return;
    const result=await api('/'+dispatchId+'/confirmar',{method:'POST'});
-   await reload();
-   busy=false;
-   await openRecord(result.id);
-   toast('Despacho '+result.reference+' registrado. Los seriales ya están asignados al técnico.');
+   // La respuesta exitosa marca el fin de la operación; nunca volver a enviar POST.
+   await showConfirmedDispatch(result.id,result.reference);
   }catch(err){
+   // Puede haber llegado un segundo clic o perdido la respuesta tras confirmar.
+   // Consultar el estado real antes de presentar una falsa falla.
+   try{
+    const check=await api('/'+dispatchId);
+    if(check.document.status==='DESPACHADO'){
+     await showConfirmedDispatch(dispatchId,check.document.reference);
+     return;
+    }
+   }catch{}
    if(err.details?.validation)showValidation(err.details.validation);
    toast(err.message,true);
-  }finally{busy=false;}
+  }finally{
+   busy=false;
+   if(dispatchStatus!=='DESPACHADO'){
+    button.disabled=false;
+    button.textContent=confirmingLabel;
+   }
+  }
  }
  async function openRecord(id){
   if(busy)return;busy=true;
@@ -500,8 +565,10 @@
    const result=await api('/'+id);
    dispatchId=id;dispatchStatus=result.document.status;
    if(dispatchStatus==='DESPACHADO'){
+    lockConfirmedDispatch(result.document.reference);
     showDetail(result);display('detail');
    }else{
+    resetConfirmControls();
     const doc=result.document;
     $('dispatch-tech').value=doc.technician_id||'';
     $('dispatch-warehouse').value=doc.warehouse_id||'';
@@ -640,6 +707,7 @@
   $('dispatch-next').addEventListener('click',()=>void next());
   $('dispatch-prev').addEventListener('click',()=>setStep(Math.max(1,step-1)));
   $('dispatch-confirm').addEventListener('click',()=>void confirmDispatch());
+  $('dispatch-confirmed-detail').addEventListener('click',()=>void openRecord(dispatchId));
   $('dispatch-import-button').addEventListener('click',()=>$('dispatch-excel-file').click());
   $('dispatch-excel-file').addEventListener('change',e=>void importExcel(e.target.files?.[0]));
   $('dispatch-download-template').addEventListener('click',()=>void template());

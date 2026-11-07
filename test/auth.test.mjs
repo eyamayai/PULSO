@@ -1441,3 +1441,39 @@ test('Despachos: panel simétrico, botones sin duplicidad y pestañas con column
  assert.match(css,/\.dispatch-dashboard\{align-items:stretch\}/);
  assert.match(css,/\.dispatch-board\{min-height:580px;height:100%;display:flex;flex-direction:column\}/);
 });
+
+
+test('Despachos: confirmar bloquea el botón y muestra detalle con notificación de éxito',()=>{
+ const js=fs.readFileSync(new URL('../pages/despachos.js',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/despachos.html',import.meta.url),'utf8');
+ const css=fs.readFileSync(new URL('../pages/despachos.css',import.meta.url),'utf8');
+ assert.match(js,/async function showConfirmedDispatch\(id,reference\)/);
+ assert.match(js,/function lockConfirmedDispatch\(reference\)/);
+ assert.match(js,/dispatchStatus='DESPACHADO';dirty=false/);
+ assert.match(js,/\$\('dispatch-confirm'\)\.disabled=true/);
+ assert.match(js,/\$\('dispatch-confirm'\)\.textContent=confirmedLabel/);
+ assert.match(js,/button\.textContent='Confirmando despacho\.\.\.'/);
+ assert.match(js,/await showConfirmedDispatch\(result\.id,result\.reference\)/);
+ assert.match(js,/if\(check\.document\.status==='DESPACHADO'\)/);
+ assert.match(js,/showDetail\(detail\);\s*display\('detail'\)/);
+ assert.match(js,/if\(dispatchStatus==='DESPACHADO'\)return;\s*resetConfirmControls\(\)/);
+ assert.match(html,/id="dispatch-confirmed-message"/);
+ assert.match(html,/id="dispatch-confirmed-detail"/);
+ assert.match(css,/\.dispatch-confirmed-message\[hidden\]\{display:none!important\}/);
+});
+test('Despachos: la confirmación duplicada sigue siendo rechazada por el servidor',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
+ await fillIngressForDispatch(x,cookie,f);
+ const id=await newDispatch(x,cookie);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',dispatchPayload(f))).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const duplicate=await dispatchApi(x,cookie,'/'+id+'/confirmar','POST');
+ assert.equal(duplicate.status,409);
+ assert.equal((await duplicate.json()).error,'DESPACHO_INMUTABLE');
+ const get=await dispatchApi(x,cookie,'/'+id);
+ const detail=await get.json();
+ assert.equal(detail.document.status,'DESPACHADO');
+ assert.equal(detail.document.reference.startsWith('DES-'),true);
+ assert.equal(x.database.prepare('SELECT COUNT(*) AS n FROM dispatch_movements WHERE dispatch_id=?').get(id).n,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) AS n FROM dispatch_serial_assignments WHERE dispatch_id=?').get(id).n,1);
+});
