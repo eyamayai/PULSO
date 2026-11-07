@@ -109,6 +109,33 @@
   t('dispatch-result-count',rows.length+' despacho'+(rows.length===1?'':'s'));
   refreshKpis();
  }
+ function warehouseLabel(warehouse){
+  return warehouse.centro+' / '+warehouse.almacen+' · '+warehouse.description+
+   ' ('+Number(warehouse.available_units||0)+' unidades disponibles)';
+ }
+ function warehouseNote(message,isWarning=false){
+  const el=$('dispatch-warehouse-note');
+  el.textContent=message;
+  el.classList.toggle('warning',isWarning);
+ }
+ function unavailableWarehouse(id,name){
+  if(!id||warehouses.some(w=>w.id===id))return false;
+  const select=$('dispatch-warehouse');
+  const option=new Option((name||'Bodega anterior')+' · SIN SALDO DISPONIBLE',id);
+  option.disabled=true;
+  select.add(option);select.value=id;
+  warehouseNote('Esta bodega ya no tiene unidades disponibles para despachar. Selecciona otra.',true);
+  return true;
+ }
+ function resetWarehouseNote(){
+  if(!warehouses.length){
+   warehouseNote('No hay bodegas propias con inventario disponible para despachar.',true);
+  }else if($('dispatch-warehouse').selectedOptions[0]?.disabled&&$('dispatch-warehouse').value){
+   warehouseNote('La bodega guardada se quedó sin saldo. Selecciona otra para continuar.',true);
+  }else{
+   warehouseNote('Solo se muestran bodegas propias con equipos o materiales disponibles.');
+  }
+ }
  async function reload(){
   const [result,cat]=await Promise.all([api(''),api('/catalogos')]);
   records=result.items||[];metrics=result.metrics||{};
@@ -121,7 +148,13 @@
    if([...sel.options].some(o=>o.value===value))sel.value=value;
   };
   choices('dispatch-tech',technicians,'Seleccionar técnico...',row=>row.full_name+' · '+row.document_number);
-  choices('dispatch-warehouse',warehouses,'Seleccionar bodega...',row=>row.centro+' / '+row.almacen+' · '+row.description);
+  const previousWarehouse=$('dispatch-warehouse').value;
+  const previousLabel=$('dispatch-warehouse').selectedOptions[0]?.textContent||'Bodega anterior';
+  choices('dispatch-warehouse',warehouses,
+   warehouses.length?'Seleccionar bodega con saldo...':'No hay bodegas con saldo disponible',
+   warehouseLabel);
+  if(previousWarehouse)unavailableWarehouse(previousWarehouse,previousLabel.replace(/ · SIN SALDO DISPONIBLE$/,''));
+  resetWarehouseNote();
   listView();
  }
  function currentDoc(){
@@ -284,7 +317,11 @@
   try{
    if(step===1){
     if(!currentDoc().technician_id||!currentDoc().warehouse_id||!currentDoc().dispatch_date){
-     toast('Selecciona técnico, bodega y fecha para continuar.',true);return;
+     toast('Selecciona técnico, una bodega con saldo disponible y fecha para continuar.',true);return;
+    }
+    if(!warehouses.some(w=>w.id===currentDoc().warehouse_id)){
+     resetWarehouseNote();
+     toast('La bodega seleccionada no tiene saldo disponible. Elige una con existencias.',true);return;
     }
     if(!await saveDraft(true))return;
     setStep(2);
@@ -325,6 +362,9 @@
     const doc=result.document;
     $('dispatch-tech').value=doc.technician_id||'';
     $('dispatch-warehouse').value=doc.warehouse_id||'';
+    const depleted=unavailableWarehouse(doc.warehouse_id,
+      [doc.centro,doc.almacen].filter(Boolean).join(' / ')+' · '+(doc.warehouse_name||'Bodega anterior'));
+    resetWarehouseNote();
     $('dispatch-date').value=doc.dispatch_date||dateLocal();
     $('dispatch-notes').value=doc.notes||'';
     items=(result.items||[]).map(it=>({sap_code:it.sap_code,serial:it.serial||'',quantity:Number(it.quantity),notes:it.notes||''}));
@@ -332,6 +372,7 @@
     t('dispatch-ref',doc.reference||'Borrador · '+id.slice(0,8));
     t('dispatch-wizard-title','Continuar despacho a técnico');
     currentMode='manual';display('wizard');setStep(1);
+    if(depleted)toast('La bodega de este borrador ya no tiene saldo. Selecciona otra bodega para continuar.',true);
    }
   }catch(err){toast(err.message,true);}finally{busy=false;}
  }
@@ -445,7 +486,7 @@
   $('dispatch-detail-back').addEventListener('click',()=>void home());
   $('dispatch-change-tech').addEventListener('click',()=>setStep(1));
   $('dispatch-tech').addEventListener('change',()=>{dirty=true;renderTech();});
-  $('dispatch-warehouse').addEventListener('change',()=>{dirty=true;renderStock();});
+  $('dispatch-warehouse').addEventListener('change',()=>{dirty=true;resetWarehouseNote();renderStock();});
   $('dispatch-date').addEventListener('change',()=>{dirty=true;});
   $('dispatch-notes').addEventListener('input',()=>{dirty=true;});
   $('dispatch-save').addEventListener('click',()=>void saveDraft());

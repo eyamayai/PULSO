@@ -1277,3 +1277,80 @@ test('Despachos: HTML muestra la identidad y las tres pantallas diferenciadas',(
  assert.match(js,/showDetail\(result\)/);
  assert.match(js,/PULSO_Plantilla_Despachos_a_tecnicos.xlsx/);
 });
+
+
+test('Despachos: solo muestra bodegas propias con saldo asignable, no vacías o inactivas',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ const actor=db.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ const empty=randomUUID(),zero=randomUUID(),bulkOnly=randomUUID(),inactive=randomUUID(),aliado=randomUUID();
+ for(const [id,centro,administration,is_active] of [
+  [empty,'C401','PROPIA',1],[zero,'C402','PROPIA',1],
+  [bulkOnly,'C403','PROPIA',1],[inactive,'C404','PROPIA',0],[aliado,'C405','ALIADO',1]
+ ]){
+  db.prepare(
+   'INSERT INTO master_logistics_locations(id,centro,almacen,description,administration,department,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(id,centro,'A001','Bodega '+centro,administration,'CESAR',is_active,actor,actor);
+ }
+ // Sin saldo inicial: también deben desaparecer bodegas PROPIAS activas.
+ let catalog=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ assert.deepEqual(catalog.warehouses,[]);
+ await fillIngressForDispatch(x,cookie,f);
+ db.prepare('INSERT INTO inventory_bulk_stock(warehouse_id,sap_code,quantity) VALUES (?,?,?)')
+  .run(zero,f.sapBulk,0);
+ for(const id of [bulkOnly,inactive,aliado])
+  db.prepare('INSERT INTO inventory_bulk_stock(warehouse_id,sap_code,quantity) VALUES (?,?,?)')
+   .run(id,f.sapBulk,2);
+ catalog=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ const ids=new Set(catalog.warehouses.map(w=>w.id));
+ assert.equal(ids.has(f.destination),true);
+ assert.equal(ids.has(bulkOnly),true);
+ assert.equal(ids.has(empty),false);
+ assert.equal(ids.has(zero),false);
+ assert.equal(ids.has(inactive),false);
+ assert.equal(ids.has(aliado),false);
+ assert.equal(ids.has(f.badDest),false);
+ assert.equal(catalog.warehouses.find(w=>w.id===f.destination).available_units,6);
+ assert.equal(catalog.warehouses.find(w=>w.id===bulkOnly).available_units,2);
+});
+test('Despachos: bodega solo con seriales, solo material y sin saldo final',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ const first=await newDispatch(x,cookie),data=dispatchPayload(f);
+ data.items=[{sap_code:f.sapSerial,serial:'EQ-001',quantity:1,notes:''}];
+ assert.equal((await dispatchApi(x,cookie,'/'+first,'PATCH',data)).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+first+'/confirmar','POST')).status,200);
+ let cat=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ assert.equal(cat.warehouses.length,1);
+ assert.equal(cat.warehouses[0].available_units,5,'La bodega permanece por el material sin serial');
+ const second=await newDispatch(x,cookie);
+ data.items=[{sap_code:f.sapBulk,serial:'',quantity:5,notes:''}];
+ assert.equal((await dispatchApi(x,cookie,'/'+second,'PATCH',data)).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+second+'/confirmar','POST')).status,200);
+ cat=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ assert.equal(cat.warehouses.length,0,'Una bodega agotada desaparece del selector');
+ assert.equal(db.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,0);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM dispatch_serial_assignments').get().n,1);
+ const third=await newDispatch(x,cookie);
+ const stale=dispatchPayload(f);
+ await dispatchApi(x,cookie,'/'+third,'PATCH',stale);
+ assert.equal((await dispatchApi(x,cookie,'/'+third+'/confirmar','POST')).status,422);
+});
+test('Despachos: un único serial libre basta para mostrar su bodega',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ db.prepare('UPDATE inventory_bulk_stock SET quantity=0 WHERE warehouse_id=?').run(f.destination);
+ const cat=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ assert.equal(cat.warehouses.length,1);
+ assert.equal(cat.warehouses[0].id,f.destination);
+ assert.equal(cat.warehouses[0].available_units,1);
+});
+test('Despachos: bodega agotada en borrador se muestra como no disponible y no permite avanzar',()=>{
+ const js=fs.readFileSync(new URL('../pages/despachos.js',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/despachos.html',import.meta.url),'utf8');
+ assert.match(js,/function unavailableWarehouse\(id,name\)/);
+ assert.match(js,/option\.disabled=true/);
+ assert.match(js,/const depleted=unavailableWarehouse\(doc\.warehouse_id/);
+ assert.match(js,/if\(!warehouses\.some\(w=>w\.id===currentDoc\(\)\.warehouse_id\)\)/);
+ assert.match(js,/unidades disponibles/);
+ assert.match(html,/id="dispatch-warehouse-note"/);
+});

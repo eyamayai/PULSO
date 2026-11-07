@@ -1462,7 +1462,25 @@ async function dispatchHandler(request,env,user,path){
     "SELECT p.id,p.document_number,p.full_name,p.department,p.city_base,p.zone,s.full_name AS supervisor_name "+
     "FROM master_personnel p LEFT JOIN master_personnel s ON s.id=p.supervisor_id "+
     "WHERE p.position='TECNICO' AND p.is_active=1 ORDER BY p.full_name COLLATE NOCASE LIMIT 2500").all(),
-   db.prepare("SELECT id,centro,almacen,description FROM master_logistics_locations WHERE administration='PROPIA' AND is_active=1 ORDER BY description LIMIT 2500").all(),
+   // Solo bodegas propias con saldo asignable, no cualquier bodega activa.
+   // UNION ALL suma seriales libres y material no serializado con stock positivo.
+   db.prepare(
+    "WITH stock AS ("+
+    "SELECT inv.warehouse_id,COUNT(*) AS units FROM inventory_serials inv "+
+    "JOIN master_sap_catalog sap ON sap.sap_code=inv.sap_code "+
+    "LEFT JOIN dispatch_serial_assignments assigned ON assigned.serial=inv.serial COLLATE NOCASE "+
+    "WHERE inv.status='DISPONIBLE' AND assigned.serial IS NULL AND sap.is_active=1 "+
+    "GROUP BY inv.warehouse_id "+
+    "UNION ALL "+
+    "SELECT b.warehouse_id,SUM(b.quantity) AS units FROM inventory_bulk_stock b "+
+    "JOIN master_sap_catalog sap ON sap.sap_code=b.sap_code "+
+    "WHERE b.quantity>0 AND sap.is_active=1 GROUP BY b.warehouse_id), "+
+    "available AS (SELECT warehouse_id,SUM(units) AS available_units FROM stock GROUP BY warehouse_id) "+
+    "SELECT w.id,w.centro,w.almacen,w.description,a.available_units "+
+    "FROM master_logistics_locations w JOIN available a ON a.warehouse_id=w.id "+
+    "WHERE w.administration='PROPIA' AND w.is_active=1 AND a.available_units>0 "+
+    "ORDER BY w.description COLLATE NOCASE LIMIT 2500"
+   ).all(),
    db.prepare(
     "SELECT inv.serial,inv.sap_code,inv.warehouse_id,inv.lot,inv.reception_state,inv.physical_state,"+
     "s.description FROM inventory_serials inv JOIN master_sap_catalog s ON s.sap_code=inv.sap_code "+
