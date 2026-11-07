@@ -922,7 +922,7 @@ async function bulkWarehouses(request,env,user){
  * La validación de pantalla es informativa: los triggers D1 vuelven a validar
  * dentro de la transacción que inserta seriales, stock y movimientos.
  */
-const ING_DOCUMENT_TYPES = new Set(['ORDEN_COMPRA','FACTURA','REMISION','ACTA_ENTREGA','OTRO']);
+const ING_DOCUMENT_TYPES = new Set(['NUMERO_PEDIDO']);
 const ING_PDF_MAX = 5 * 1024 * 1024;
 const ING_PDF_CHUNK = 128 * 1024;
 const ING_MAX_ITEMS = 500;
@@ -1012,8 +1012,8 @@ async function ingValidate(db,document,items){
   const errors=[],warnings=[];
   const add=(code,message,step,index=null)=>errors.push({code,message,step,index,blocking:true});
   const documentType=String(document.document_type||'');
-  if(!ING_DOCUMENT_TYPES.has(documentType))add('DOCUMENTO_TIPO','Selecciona el tipo de documento.',1);
-  if(!String(document.document_number||'').trim())add('DOCUMENTO_NUMERO','Ingresa el número de documento.',1);
+  if(!ING_DOCUMENT_TYPES.has(documentType))add('DOCUMENTO_TIPO','El tipo de documento debe ser Número de Pedido.',1);
+  if(!String(document.document_number||'').trim())add('DOCUMENTO_NUMERO','Ingresa el número de pedido.',1);
   if(!ingDate(document.document_date))add('DOCUMENTO_FECHA','Indica una fecha válida del documento.',1);
   if(!ingDate(document.received_date))add('INGRESO_FECHA','Indica una fecha de ingreso válida.',1);
   const ids=[document.source_id,document.destination_id].filter(Boolean);

@@ -1,7 +1,8 @@
 'use strict';
 (() => {
   const $=id=>document.getElementById(id);
-  const DOC_TYPES={ORDEN_COMPRA:'Orden de compra',FACTURA:'Factura',REMISION:'Remisión',ACTA_ENTREGA:'Acta de entrega',OTRO:'Otro'};
+  // Los tipos anteriores se conservan únicamente para visualizar el historial.
+  const DOC_TYPES={NUMERO_PEDIDO:'Número de Pedido',ORDEN_COMPRA:'Orden de compra',FACTURA:'Factura',REMISION:'Remisión',ACTA_ENTREGA:'Acta de entrega',OTRO:'Otro'};
   let catalog=[],warehouse=[],bySap=new Map(),byWarehouse=new Map(),list=[];
   let id='',status='BORRADOR',step=1,items=[],support={size:0,filename:''},validation=null,dirty=false,busy=false;
   const text=(id,value)=>{$(id).textContent=String(value??'');};
@@ -117,7 +118,15 @@
     };
   }
   function setDoc(doc){
-    $('ing-doc-type').value=doc.document_type||'';
+    const type=$('ing-doc-type');
+    type.replaceChildren(new Option('Número de Pedido','NUMERO_PEDIDO'));
+    // Los documentos ya registrados mantienen su tipo histórico en modo consulta.
+    const historic=doc.status==='REGISTRADO'&&doc.document_type&&doc.document_type!=='NUMERO_PEDIDO';
+    if(historic){
+      const option=new Option(DOC_TYPES[doc.document_type]||doc.document_type,doc.document_type);
+      type.add(option);
+      type.value=doc.document_type;
+    }else type.value='NUMERO_PEDIDO';
     $('ing-doc-number').value=doc.document_number||'';
     $('ing-doc-date').value=doc.document_date||'';
     $('ing-date').value=doc.received_date||'';
@@ -270,7 +279,7 @@
     const doc=getDoc();
     const pairs=[
       ['Tipo',DOC_TYPES[doc.document_type]||'Pendiente'],
-      ['Número de documento',doc.document_number||'Pendiente'],
+      ['Número de pedido',doc.document_number||'Pendiente'],
       ['Origen / Aliado',warehouseName(doc.source_id)],
       ['Bodega destino',warehouseName(doc.destination_id)],
       ['Fecha del documento',doc.document_date||'Pendiente'],

@@ -87,6 +87,7 @@ jobs:
           node --check pages/ingresos.js
           grep -q 'id="ingress-wizard"' pages/ingresos.html
           grep -q 'id="ing-confirm"' pages/ingresos.html
+          grep -q 'value="NUMERO_PEDIDO"' pages/ingresos.html
           grep -q 'sheet.autoFilter' pages/ingresos.js
           grep -q 'ySplit:1' pages/ingresos.js
           grep -q "header:'Lote'" pages/ingresos.js

@@ -9,7 +9,7 @@ BEFORE UPDATE OF status ON ingress_documents
 WHEN OLD.status='BORRADOR' AND NEW.status='REGISTRADO'
 BEGIN
  SELECT RAISE(ABORT,'DOCUMENTO_INCOMPLETO')
- WHERE NEW.document_type NOT IN ('ORDEN_COMPRA','FACTURA','REMISION','ACTA_ENTREGA','OTRO')
+ WHERE NEW.document_type <> 'NUMERO_PEDIDO'
  OR trim(NEW.document_number)='' OR NEW.document_date='' OR NEW.received_date='';
  SELECT RAISE(ABORT,'ORIGEN_ALIADO_INVALIDO')
  WHERE NOT EXISTS(SELECT 1 FROM master_logistics_locations w

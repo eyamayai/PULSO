@@ -741,7 +741,7 @@ async function ingNew(x,cookie){
 }
 function ingPayload(f){
  return {document:{
-  document_type:'REMISION',document_number:'REM-2026-1',
+  document_type:'NUMERO_PEDIDO',document_number:'PED-2026-1',
   document_date:'2026-11-06',received_date:'2026-11-07',
   source_id:f.source,destination_id:f.destination,notes:'PDF opcional'
  },items:[
@@ -749,6 +749,24 @@ function ingPayload(f){
   {sap_code:f.sapBulk,serial:'',quantity:5,lot:'NOVALORADO',reception_state:'REMANUFACTURADO',notes:''}
  ]};
 }
+
+test('Ingresos: único tipo de documento permitido Número de Pedido',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie),payload=ingPayload(f);
+ let result=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal(result.status,200);
+ assert.equal((await result.json()).validation.valid,true);
+ const other=ingPayload(f);other.document.document_type='FACTURA';
+ result=await ingApi(x,cookie,'/'+id,'PATCH',other);
+ assert.equal(result.status,400);
+ const actor=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ x.database.prepare('UPDATE ingress_documents SET document_type=? WHERE id=?').run('FACTURA',id);
+ assert.throws(()=>x.database.prepare("UPDATE ingress_documents SET status='REGISTRADO',registered_by=? WHERE id=?").run(actor,id),/DOCUMENTO_INCOMPLETO/);
+ const saved=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal(saved.status,200);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ assert.equal(x.database.prepare('SELECT document_type FROM ingress_documents WHERE id=?').get(id).document_type,'NUMERO_PEDIDO');
+});
 test('Ingresos: acceso de administrador y borradores sin movimientos',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
  assert.equal((await ingApi(x,'')).status,401);

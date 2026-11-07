@@ -121,11 +121,9 @@
         <p class="income-subtitle">Identifica el documento que respalda el ingreso.</p>
         <div class="income-form-grid">
           <label>Tipo de documento <span class="required">*</span>
-            <select id="ing-doc-type"><option value="">Seleccionar...</option>
-              <option value="ORDEN_COMPRA">Orden de compra</option><option value="FACTURA">Factura</option>
-              <option value="REMISION">Remisión</option><option value="ACTA_ENTREGA">Acta de entrega</option><option value="OTRO">Otro</option></select></label>
-          <label>Número de documento <span class="required">*</span>
-            <input id="ing-doc-number" maxlength="90" placeholder="Número o referencia"></label>
+            <select id="ing-doc-type"><option value="NUMERO_PEDIDO" selected>Número de Pedido</option></select></label>
+          <label>Número de pedido <span class="required">*</span>
+            <input id="ing-doc-number" maxlength="90" placeholder="Número de pedido"></label>
           <label>Quién despacha · ALIADO <span class="required">*</span>
             <select id="ing-source"><option value="">Seleccionar aliado...</option></select></label>
           <label>Fecha del documento <span class="required">*</span><input id="ing-doc-date" type="date"></label>
