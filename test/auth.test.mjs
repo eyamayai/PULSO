@@ -779,7 +779,7 @@ test('Ingresos: confirma sin PDF y registra serial, cantidades y movimiento en u
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
  assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
- assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_audit WHERE action='REGISTRAR'').get().n,1);
+ assert.equal(x.database.prepare("SELECT COUNT(*) n FROM ingress_audit WHERE action='REGISTRAR'").get().n,1);
  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,409);
  assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f))).status,409);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
