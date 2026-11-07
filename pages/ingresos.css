@@ -266,3 +266,18 @@
 .ingress-detail-table-wrap .ingress-table th:nth-child(6){min-width:170px}
 .ingress-detail-footnote{font-size:11px;color:#668578;line-height:1.5;margin-top:14px}
 @media(max-width:760px){.ingress-detail-panel{padding:15px 11px}.ingress-detail-heading h2{font-size:21px}.ingress-detail-status{margin-left:0}.ingress-detail-table-wrap{max-height:60dvh}}
+
+
+/* Acciones seguras por borrador: la eliminación nunca aparece en registros definitivos. */
+.ingress-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:max-content}
+.ingress-row-delete{border-color:#edccc7;color:#a83732;background:#fff7f6}
+.ingress-row-delete:hover:not(:disabled){background:#fbe7e4;border-color:#dfa5a1}
+.ingress-row-button:focus-visible{outline:2px solid #00856a;outline-offset:2px}
+.ingress-row-button:disabled{opacity:.5;cursor:not-allowed}
+.ingress-list-message{padding:12px 18px;margin:0;background:#e7f7ed;color:#146449;font-size:12px;font-weight:700;border-bottom:1px solid #c9ead5}
+.ingress-list-message.error{background:#fff0ee;color:#a43731;border-bottom-color:#eed5d1}
+.ingress-list-message[hidden]{display:none!important}
+@media(max-width:760px){
+  .ingress-row-actions{gap:6px}
+  .ingress-row-button{padding:8px 9px}
+}

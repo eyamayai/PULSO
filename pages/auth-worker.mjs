@@ -1304,13 +1304,21 @@ async function ingresosHandler(request,env,user,path){
   if(method==='DELETE'){
     if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
     if(doc.status!=='BORRADOR')return ingBad('INGRESO_INMUTABLE',409);
-    await db.batch([
-      db.prepare('DELETE FROM ingress_support_chunks WHERE ingress_id=?').bind(id),
-      db.prepare('DELETE FROM ingress_items WHERE ingress_id=?').bind(id),
-      db.prepare('DELETE FROM ingress_audit WHERE ingress_id=?').bind(id),
-      db.prepare("DELETE FROM ingress_documents WHERE id=? AND status='BORRADOR'").bind(id)
-    ]);
-    return json({ok:true});
+    try{
+      // Una sola transacción. La condición BORRADOR impide borrar un ingreso
+      // confirmado, incluso si su estado cambiara entre la lectura y el DELETE.
+      const results=await db.batch([
+        db.prepare('DELETE FROM ingress_support_chunks WHERE ingress_id=?').bind(id),
+        db.prepare('DELETE FROM ingress_items WHERE ingress_id=?').bind(id),
+        db.prepare('DELETE FROM ingress_audit WHERE ingress_id=?').bind(id),
+        db.prepare("DELETE FROM ingress_documents WHERE id=? AND status='BORRADOR'").bind(id)
+      ]);
+      if((results[3]?.meta?.changes??results[3]?.changes)!==1)
+        return ingBad('INGRESO_INMUTABLE',409);
+    }catch{
+      return ingBad('INGRESO_INMUTABLE',409);
+    }
+    return json({ok:true,deleted:true,id});
   }
   if(method!=='PATCH')return ingBad('METODO_NO_PERMITIDO',405);
   if(doc.status!=='BORRADOR')return ingBad('INGRESO_INMUTABLE',409);

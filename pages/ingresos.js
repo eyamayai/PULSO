@@ -31,6 +31,12 @@
     };
     return messages[code]||code||'No se pudo completar la operación.';
   }
+  function showListMessage(message,error=false){
+    const alert=$('ingress-list-message');
+    alert.textContent=message||'';
+    alert.hidden=!message;
+    alert.classList.toggle('error',error);
+  }
   async function api(path,{method='GET',data=null,raw=null,headers={}}={}){
     const response=await fetch('/api/ingresos'+path,{
       method,credentials:'same-origin',cache:'no-store',
@@ -99,8 +105,19 @@
       state.append(elt('span',record.status==='REGISTRADO'?'Registrado':'Borrador',
         record.status==='REGISTRADO'?'ingress-pill':'ingress-pill draft'));
       tr.append(state);
-      const actions=elt('td');const open=elt('button',record.status==='BORRADOR'?'Continuar':'Ver detalle','ingress-row-button');
-      open.type='button';open.addEventListener('click',()=>void openIngress(record.id));actions.append(open);tr.append(actions);
+      const actions=elt('td'),buttons=elt('div',undefined,'ingress-row-actions');
+      const open=elt('button',record.status==='BORRADOR'?'Continuar':'Ver detalle','ingress-row-button');
+      open.type='button';open.addEventListener('click',()=>void openIngress(record.id));
+      buttons.append(open);
+      if(record.status==='BORRADOR'){
+        const remove=elt('button','Eliminar','ingress-row-button ingress-row-delete');
+        remove.type='button';
+        remove.setAttribute('aria-label','Eliminar borrador del pedido '+(record.document_number||'sin número'));
+        remove.title='Eliminar este borrador definitivamente';
+        remove.addEventListener('click',()=>void deleteDraft(record,remove));
+        buttons.append(remove);
+      }
+      actions.append(buttons);tr.append(actions);
       tbody.append(tr);
     }
     $('ingress-empty').hidden=results.length>0;
@@ -109,6 +126,36 @@
     text('kpi-ingress-drafts',list.filter(x=>x.status==='BORRADOR').length);
     text('kpi-ingress-confirmed',list.filter(x=>x.status==='REGISTRADO').length);
     text('kpi-ingress-units',list.filter(x=>x.status==='REGISTRADO').reduce((sum,x)=>sum+Number(x.total_units||0),0));
+  }
+  async function deleteDraft(record,button){
+    if(busy||record.status!=='BORRADOR')return;
+    const label=record.document_number||'sin número';
+    const confirmed=window.confirm(
+      '¿Eliminar definitivamente el borrador del pedido '+label+'?\n\n'+
+      'Se eliminarán el documento, sus '+Number(record.item_count||0)+' ítems y el PDF adjunto, si existe.\n'+
+      'Esta acción no se puede deshacer.'
+    );
+    if(!confirmed)return;
+    busy=true;button.disabled=true;
+    try{
+      await api('/'+record.id,{method:'DELETE'});
+      // Eliminar de la vista inmediatamente después de recibir confirmación del servidor.
+      list=list.filter(entry=>entry.id!==record.id);
+      renderList();
+      showListMessage('Borrador del pedido '+label+' eliminado correctamente. El inventario no se modificó.');
+      try{
+        list=(await api('')).items||list;
+        renderList();
+      }catch{
+        // La baja ya fue confirmada. Conserva el listado local sin mostrar un falso error.
+      }
+    }catch(error){
+      showListMessage(error.message,true);
+      try{
+        list=(await api('')).items||list;
+        renderList();
+      }catch{}
+    }finally{busy=false;button.disabled=false;}
   }
   function getDoc(){
     return {
@@ -452,6 +499,7 @@
   }
   async function openIngress(entryId){
     if(busy)return;busy=true;
+    showListMessage('');
     try{
       const data=await api('/'+entryId);
       if(data.document.status==='REGISTRADO'){
@@ -482,6 +530,7 @@
   }
   async function newIngress(){
     if(busy)return;busy=true;
+    showListMessage('');
     try{
       const result=await api('',{method:'POST'});
       await openIngressAfterCreate(result.id);

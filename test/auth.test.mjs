@@ -751,6 +751,73 @@ function ingPayload(f){
  ]};
 }
 
+
+test('Ingresos: eliminar borrador con ítems y PDF limpia datos sin mover inventario',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x),id=await ingNew(x,cookie);
+ const payload=ingPayload(f);
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',payload)).status,200);
+ const pdf=new TextEncoder().encode('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+ const upload=new Request(root+'/api/ingresos/'+id+'/soporte',{
+   method:'POST',headers:{cookie,origin:root,'Content-Type':'application/pdf','x-file-name':'pedido.pdf'},body:pdf
+ });
+ assert.equal((await worker.fetch(upload,x.env)).status,201);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_items WHERE ingress_id=?').get(id).n,2);
+ assert.ok(x.database.prepare('SELECT COUNT(*) n FROM ingress_support_chunks WHERE ingress_id=?').get(id).n>0);
+ assert.equal((await ingApi(x,cookie,'/'+id,'DELETE',null,'https://externo.example')).status,403);
+ assert.equal((await ingApi(x,'','/'+id,'DELETE')).status,401);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_documents WHERE id=?').get(id).n,1);
+ const erased=await ingApi(x,cookie,'/'+id,'DELETE');
+ assert.equal(erased.status,200);
+ assert.equal((await erased.json()).deleted,true);
+ for(const table of ['ingress_documents','ingress_items','ingress_support_chunks','ingress_audit'])
+   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM '+table+' WHERE '+(table==='ingress_documents'?'id':'ingress_id')+'=?').get(id).n,0,table);
+ for(const table of ['inventory_serials','inventory_movements','inventory_bulk_stock'])
+   assert.equal(x.database.prepare('SELECT COUNT(*) n FROM '+table).get().n,0,table);
+ assert.equal((await ingApi(x,cookie,'/'+id)).status,404);
+ assert.equal((await ingApi(x,cookie,'/'+id,'DELETE')).status,404);
+ assert.equal((await (await ingApi(x,cookie)).json()).items.length,0);
+});
+test('Ingresos: un ingreso REGISTRADO no se puede eliminar y mantiene existencias',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x),id=await ingNew(x,cookie);
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f))).status,200);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const before={
+  serials:x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,
+  movements:x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,
+  bulk:x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,
+  audit:x.database.prepare('SELECT COUNT(*) n FROM ingress_audit WHERE ingress_id=?').get(id).n
+ };
+ const rejected=await ingApi(x,cookie,'/'+id,'DELETE');
+ assert.equal(rejected.status,409);
+ assert.equal((await rejected.json()).error,'INGRESO_INMUTABLE');
+ assert.equal(x.database.prepare('SELECT status FROM ingress_documents WHERE id=?').get(id).status,'REGISTRADO');
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_items WHERE ingress_id=?').get(id).n,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,before.serials);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,before.movements);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,before.bulk);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_audit WHERE ingress_id=?').get(id).n,before.audit);
+});
+test('Ingresos: se puede descartar un borrador vacío sin afectar otros ingresos',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const registered=await ingNew(x,cookie);
+ await ingApi(x,cookie,'/'+registered,'PATCH',ingPayload(f));
+ assert.equal((await ingApi(x,cookie,'/'+registered+'/confirmar','POST')).status,200);
+ const empty=await ingNew(x,cookie);
+ assert.equal((await ingApi(x,cookie,'/'+empty,'DELETE')).status,200);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+ assert.equal(x.database.prepare('SELECT status FROM ingress_documents WHERE id=?').get(registered).status,'REGISTRADO');
+ const listing=(await (await ingApi(x,cookie)).json()).items;
+ assert.equal(listing.length,1);assert.equal(listing[0].status,'REGISTRADO');
+});
+test('Interfaz Ingresos: muestra Eliminar solo en borradores, con confirmación',()=>{
+ const source=fs.readFileSync(new URL('../pages/ingresos.js',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/ingresos.html',import.meta.url),'utf8');
+ assert.match(source,/if\(record.status==='BORRADOR'\)\{\s*const remove=elt\('button','Eliminar'/);
+ assert.match(source,/window.confirm\(/);
+ assert.match(source,/api\('\/'\+record.id,\{method:'DELETE'\}\)/);
+ assert.match(source,/list=list.filter\(entry=>entry.id!==record.id\)/);
+ assert.match(html,/id="ingress-list-message"/);
+});
 test('Ingresos: único tipo de documento permitido Número de Pedido',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
  const id=await ingNew(x,cookie),payload=ingPayload(f);
