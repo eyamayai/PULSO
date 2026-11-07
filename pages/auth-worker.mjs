@@ -1589,7 +1589,7 @@ async function dispatchMassHandler(request,env,user,path){
  if(input.error)return ingBad(input.error,input.status);
  const data=input.data,operationId=String(data.operation_id||'');
  // Hash de contenido canónico para reintentos seguros tras pérdida de respuesta.
- if(!data||!Array.isArray(data.rows)||data.rows.length<1||data.rows.length>500)
+ if(!data||!Array.isArray(data.rows)||data.rows.length<1)
   return ingBad('ARCHIVO_INVALIDO',400);
  const canonical=JSON.stringify(data.rows);
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical));
