@@ -1477,3 +1477,17 @@ test('Despachos: la confirmación duplicada sigue siendo rechazada por el servid
  assert.equal(x.database.prepare('SELECT COUNT(*) AS n FROM dispatch_movements WHERE dispatch_id=?').get(id).n,2);
  assert.equal(x.database.prepare('SELECT COUNT(*) AS n FROM dispatch_serial_assignments WHERE dispatch_id=?').get(id).n,1);
 });
+
+
+test('Acceso: correo y contraseña siguen legibles con autocompletado de Chrome',()=>{
+ const css=fs.readFileSync(new URL('../pages/acceso.css',import.meta.url),'utf8');
+ const html=fs.readFileSync(new URL('../pages/main.html',import.meta.url),'utf8');
+ assert.match(css,/\.field input:-webkit-autofill/);
+ assert.match(css,/\.field input:-webkit-autofill:focus/);
+ assert.match(css,/\.field input:autofill/);
+ assert.match(css,/-webkit-text-fill-color:#f7fffb !important/);
+ assert.match(css,/box-shadow:0 0 0 1000px #28675c inset !important/);
+ assert.match(css,/caret-color:#fff/);
+ assert.match(html,/id="login-email" type="email"[^>]*autocomplete="username"/);
+ assert.match(html,/id="login-password" type="password"[^>]*autocomplete="current-password"/);
+});
