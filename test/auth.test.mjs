@@ -14,7 +14,7 @@ const sql8=fs.readFileSync(new URL('../cloudflare/migrations/0008_departamentos_
 const sql9=fs.readFileSync(new URL('../cloudflare/migrations/0009_ingresos.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse)database.exec(sql8); database.exec(sql9);
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -779,7 +779,7 @@ test('Ingresos: confirma sin PDF y registra serial, cantidades y movimiento en u
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
  assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
- assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_audit WHERE action="REGISTRAR"').get().n,1);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_audit WHERE action='REGISTRAR'').get().n,1);
  assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,409);
  assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f))).status,409);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
