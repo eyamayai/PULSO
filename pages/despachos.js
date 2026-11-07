@@ -185,17 +185,27 @@
    ['Observaciones',$('dispatch-notes').value||'Sin observaciones']
   ];
  }
- function renderSummary(){
-  fieldSummary($('dispatch-review'),summaryData());
-  fieldSummary($('dispatch-confirm-summary'),summaryData());
-  const body=$('dispatch-review-items');body.replaceChildren();
+ function renderEquipmentTable(elementId){
+  const body=$(elementId);body.replaceChildren();
+  const stock=stockList();
   for(const item of items){
-   const tr=make('tr'),found=stockList().find(x=>x.sap_code===item.sap_code&&
+   const tr=make('tr'),found=stock.find(x=>x.sap_code===item.sap_code&&
     (item.serial?x.serial===item.serial:x.kind==='bulk'));
    for(const col of [item.sap_code,found?.description||'SAP',item.serial||'Sin serial',item.quantity])
     tr.append(make('td',col));
    body.append(tr);
   }
+ }
+ function renderSummary(){
+  const count=totals();
+  // Paso 3: solamente los equipos seleccionados, sin datos del técnico ni bodega.
+  fieldSummary($('dispatch-review-counts'),[
+   ['Ítems seleccionados',count.lines],['Unidades a asignar',count.units]
+  ]);
+  renderEquipmentTable('dispatch-review-items');
+  // Paso 4: la revisión completa, incluida la lista final de equipos.
+  fieldSummary($('dispatch-confirm-summary'),summaryData());
+  renderEquipmentTable('dispatch-confirm-items');
  }
  function renderTech(){
   const person=technicians.find(x=>x.id===$('dispatch-tech').value);

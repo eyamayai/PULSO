@@ -95,3 +95,11 @@
 /* El selector de origen informa cuando una bodega deja de tener saldo. */
 .dispatch-warehouse-note{display:block;margin-top:6px;font-size:11px;line-height:1.45;color:#5c8875;font-weight:500}
 .dispatch-warehouse-note.warning{color:#a44d30;font-weight:700}
+
+/* Paso 3: cifras compactas y equipos; paso 4: confirmación completa sin editar. */
+.dispatch-equipment-counts{max-width:620px}
+.dispatch-summary-table{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.dispatch-summary-table .ingress-table{min-width:620px}
+.dispatch-confirm-items-title{font:800 15px 'Manrope',sans-serif;color:#164e3a;margin:22px 0 12px}
+@media(max-width:760px){.dispatch-equipment-counts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:450px){.dispatch-equipment-counts{grid-template-columns:minmax(0,1fr)}}

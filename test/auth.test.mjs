@@ -1354,3 +1354,26 @@ test('Despachos: bodega agotada en borrador se muestra como no disponible y no p
  assert.match(js,/unidades disponibles/);
  assert.match(html,/id="dispatch-warehouse-note"/);
 });
+
+
+test('Despachos: paso 3 solo equipos y paso 4 confirmación completa con equipos',()=>{
+ const html=fs.readFileSync(new URL('../pages/despachos.html',import.meta.url),'utf8');
+ const js=fs.readFileSync(new URL('../pages/despachos.js',import.meta.url),'utf8');
+ const third=html.split('<div id="dispatch-step-three"')[1]?.split('<div id="dispatch-step-four"')[0];
+ const fourth=html.split('<div id="dispatch-step-four"')[1]?.split('<div id="dispatch-errors"')[0];
+ assert.ok(third,'El paso 3 debe existir');
+ assert.ok(fourth,'El paso 4 debe existir');
+ assert.match(third,/Resumen de equipos/);
+ assert.match(third,/id="dispatch-review-counts"/);
+ assert.match(third,/id="dispatch-review-items"/);
+ assert.doesNotMatch(third,/id="dispatch-confirm-summary"|id="dispatch-review"|Técnico responsable|Bodega de origen|id="dispatch-ack"/);
+ assert.match(fourth,/id="dispatch-confirm-summary"/);
+ assert.match(fourth,/id="dispatch-confirm-items"/);
+ assert.match(fourth,/id="dispatch-ack"/);
+ assert.match(js,/function renderEquipmentTable\(elementId\)/);
+ assert.match(js,/renderEquipmentTable\('dispatch-review-items'\)/);
+ assert.match(js,/renderEquipmentTable\('dispatch-confirm-items'\)/);
+ assert.match(js,/fieldSummary\(\$\('dispatch-review-counts'\)/);
+ assert.match(js,/fieldSummary\(\$\('dispatch-confirm-summary'\),summaryData\(\)\)/);
+ assert.doesNotMatch(js,/fieldSummary\(\$\('dispatch-review'\),summaryData\(\)\)/);
+});
