@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#052e2a">
+<meta name="robots" content="noindex,nofollow">
+<title>PULSO | Ingresos</title>
+<link rel="icon" type="image/webp" href="/icono-original.webp">
+<link rel="stylesheet" href="/pulso.css">
+<link rel="stylesheet" href="/ingresos.css">
+<script src="/inicio-session.js" defer></script>
+<script src="/exceljs.min.js" defer></script>
+<script src="/ingresos.js" defer></script>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+<symbol id="ico-box" viewBox="0 0 24 24"><path d="m3 7 9-4 9 4v10l-9 4-9-4Z"/><path d="m3 7 9 4 9-4M12 11v10"/></symbol>
+<symbol id="ico-warehouse" viewBox="0 0 24 24"><path d="m3 9 9-6 9 6v12H3Z"/><path d="M8 21v-9h8v9M3 9h18"/></symbol>
+<symbol id="ico-truck" viewBox="0 0 24 24"><path d="M2 6h13v12H2zM15 10h4l3 4v4h-7M5 18a2 2 0 1 0 4 0M17 18a2 2 0 1 0 4 0"/></symbol>
+<symbol id="ico-check" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m8 12 3 3 5-6"/></symbol>
+<symbol id="ico-return" viewBox="0 0 24 24"><path d="M8 7 4 11l4 4M4 11h11a5 5 0 0 1 0 10h-2M9 3h10v6"/></symbol>
+<symbol id="ico-stack" viewBox="0 0 24 24"><path d="m3 8 9-5 9 5-9 5-9-5Zm0 5 9 5 9-5M3 18l9 4 9-4"/></symbol>
+<symbol id="ico-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 9h18c0-1-3-2-3-9ZM10 21h4"/></symbol>
+<symbol id="ico-arrows" viewBox="0 0 24 24"><path d="M4 7h16m-5-4 5 4-5 4M20 17H4m5-4-5 4 5 4"/></symbol>
+<symbol id="ico-move" viewBox="0 0 24 24"><path d="M12 2v20m-4-4 4 4 4-4M2 12h20m-4-4 4 4-4 4M6 8l-4 4 4 4M8 6l4-4 4 4"/></symbol>
+<symbol id="ico-inventory" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16m-10 4h4"/></symbol>
+<symbol id="ico-cycle" viewBox="0 0 24 24"><path d="M20 7V3l-4 4 4 4V7a8 8 0 0 0-14-2M4 17v4l4-4-4-4v4a8 8 0 0 0 14 2"/></symbol>
+<symbol id="ico-scan" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3M3 12h18M7 10v4m3-4v4m4-4v4m3-4v4"/></symbol>
+<symbol id="ico-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 17v-5m5 5V7m5 10V4"/></symbol>
+<symbol id="ico-alert" viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 4h.01"/></symbol>
+<symbol id="ico-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ico-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.3 3.4-7 8-7s8 2.7 8 7"/></symbol><symbol id="ico-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10H3V11Z"/><path d="M9 21v-7h6v7"/></symbol><symbol id="ico-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol><symbol id="ico-pulse" viewBox="0 0 24 24"><path d="M2 13h5l3-8 4 14 3-6h5"/></symbol><symbol id="ico-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol><symbol id="ico-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v11H3V10Z"/><path d="M9 21v-8h6v8"/></symbol>
+<symbol id="ico-search" viewBox="0 0 24 24"><circle cx="10.7" cy="10.7" r="7.2"/><path d="m16.1 16.1 5 5"/></symbol>
+<symbol id="ico-user" viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="4.2"/><path d="M4 21c0-4.5 3-7 8-7s8 2.5 8 7"/></symbol>
+<symbol id="ico-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.6"/><path d="M12 2.2v2m0 15.6v2M2.2 12h2m15.6 0h2M5 5l1.6 1.6m10.8 10.8L19 19M19 5l-1.6 1.6M6.6 17.4 5 19"/></symbol>
+<symbol id="ico-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+<symbol id="ico-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9 9a3 3 0 0 1 6 1c0 2-3 2.5-3 4"/><path d="M12 18h.01"/></symbol></svg>
+<div class="app">
+ <aside class="sidebar" aria-label="Menú principal">
+  <a class="brand brand-original" href="/inicio" aria-label="PULSO, Inicio"><picture><source media="(max-width:700px)" srcset="/icono-original.webp" type="image/webp"><img src="/logo-original-encuadrado.webp" alt="PULSO" width="200" height="64"></picture></a>
+  <nav class="side-nav" aria-label="Navegación de PULSO">
+   <a class="side-link" href="/inicio"><svg class="ic" aria-hidden="true"><use href="#ico-home"></use></svg><span>Inicio</span></a>
+   <div class="nav-caption">OPERACIÓN LOGÍSTICA</div>
+   <div class="sidebar-modules"><a class="side-link current" aria-current="page" href="/maestras" aria-label="Maestras"><svg class="ic" aria-hidden="true"><use href="#ico-warehouse"></use></svg><span>Maestras</span></a>
+<a class="side-link current" href="/ingresos" aria-current="page" aria-label="Ingresos"><svg class="ic" aria-hidden="true"><use href="#ico-box"></use></svg><span>Ingresos</span></a>
+<button type="button" class="side-link" data-target="mod-despachos" aria-label="Despachos"><svg class="ic" aria-hidden="true"><use href="#ico-truck"></use></svg><span>Despachos</span></button>
+<button type="button" class="side-link" data-target="mod-consumos" aria-label="Consumos"><svg class="ic" aria-hidden="true"><use href="#ico-check"></use></svg><span>Consumos</span></button>
+<button type="button" class="side-link" data-target="mod-devoluciones" aria-label="Devoluciones"><svg class="ic" aria-hidden="true"><use href="#ico-return"></use></svg><span>Devoluciones</span></button>
+<button type="button" class="side-link" data-target="mod-desmontes" aria-label="Desmontes"><svg class="ic" aria-hidden="true"><use href="#ico-stack"></use></svg><span>Desmontes</span></button>
+<button type="button" class="side-link" data-target="mod-prealertas" aria-label="Prealertas"><svg class="ic" aria-hidden="true"><use href="#ico-bell"></use></svg><span>Prealertas</span></button>
+<button type="button" class="side-link" data-target="mod-traslados" aria-label="Traslados"><svg class="ic" aria-hidden="true"><use href="#ico-move"></use></svg><span>Traslados</span></button>
+<button type="button" class="side-link" data-target="mod-transferencias" aria-label="Transferencias"><svg class="ic" aria-hidden="true"><use href="#ico-arrows"></use></svg><span>Transferencias</span></button>
+<button type="button" class="side-link" data-target="mod-inventario" aria-label="Inventario"><svg class="ic" aria-hidden="true"><use href="#ico-inventory"></use></svg><span>Inventario</span></button>
+<button type="button" class="side-link" data-target="mod-inventarios-ciclicos" aria-label="Inventarios cíclicos"><svg class="ic" aria-hidden="true"><use href="#ico-cycle"></use></svg><span>Inventarios cíclicos</span></button>
+<button type="button" class="side-link" data-target="mod-validar-seriales" aria-label="Validar seriales"><svg class="ic" aria-hidden="true"><use href="#ico-scan"></use></svg><span>Validar seriales</span></button>
+<button type="button" class="side-link" data-target="mod-informes" aria-label="Informes"><svg class="ic" aria-hidden="true"><use href="#ico-chart"></use></svg><span>Informes</span></button>
+<button type="button" class="side-link" data-target="mod-alertas" aria-label="Alertas"><svg class="ic" aria-hidden="true"><use href="#ico-alert"></use></svg><span>Alertas</span></button></div>
+  </nav>
+  <div class="sidebar-bottom"><span class="side-wave" aria-hidden="true"></span></div>
+ </aside>
+ <div class="app-main">
+  <header class="topbar">
+   <div class="master-breadcrumb"><a href="/inicio">Inicio</a><span>/</span><strong>Ingresos</strong></div>
+   <div class="top-right">
+    <span class="project">MinTIC · Costa R1</span>
+    <div class="user-area"><svg class="ic" aria-hidden="true"><use href="#ico-user"></use></svg><span id="session-user" class="session-name"></span></div>
+    <button id="logout-btn" class="logout-btn" type="button" hidden>Salir</button>
+    <button id="notifications-button" class="notification-btn" type="button" aria-label="Ver alertas" title="Alertas"><svg class="ic" aria-hidden="true"><use href="#ico-bell"></use></svg></button>
+   </div>
+  </header>
+  
+<main class="workspace incomes-workspace">
+ <div class="income-shell">
+  <header class="income-heading">
+   <div class="income-title"><span class="income-accent" aria-hidden="true"></span>
+    <div><div class="master-eyebrow">OPERACIÓN LOGÍSTICA</div><h1>Ingresos</h1>
+     <p>Registro y control de ingresos de bienes al inventario</p></div>
+   </div>
+   <span class="income-project">MinTIC · Costa R1</span>
+  </header>
+  <section id="ingress-home" class="ingress-home" aria-labelledby="ingress-home-title">
+    <div class="income-home-actions">
+      <div><span class="income-eyebrow">MOVIMIENTOS DE ENTRADA</span><h2 id="ingress-home-title">Control de ingresos</h2></div>
+      <button type="button" class="income-button primary" id="ingress-new">＋ Nuevo ingreso</button>
+    </div>
+    <div class="ingress-kpis">
+      <div class="ingress-kpi"><span class="ingress-kpi-icon">↧</span><div><small>Total de ingresos</small><strong id="kpi-ingress-total">0</strong></div></div>
+      <div class="ingress-kpi"><span class="ingress-kpi-icon mint">✓</span><div><small>Registrados</small><strong id="kpi-ingress-confirmed">0</strong></div></div>
+      <div class="ingress-kpi"><span class="ingress-kpi-icon orange">◷</span><div><small>Borradores</small><strong id="kpi-ingress-drafts">0</strong></div></div>
+      <div class="ingress-kpi"><span class="ingress-kpi-icon blue">▣</span><div><small>Unidades registradas</small><strong id="kpi-ingress-units">0</strong></div></div>
+    </div>
+    <div class="income-panel ingress-home-panel">
+      <div class="ingress-filterbar">
+       <label class="ingress-search">⌕ <input id="ingress-search" type="search" placeholder="Buscar documento, código o bodega..." autocomplete="off"></label>
+       <label>Estado <select id="ingress-status-filter"><option value="">Todos</option><option value="BORRADOR">Borradores</option><option value="REGISTRADO">Registrados</option></select></label>
+       <span class="ingress-table-count" id="ingress-list-count">0 ingresos</span>
+      </div>
+      <div class="ingress-table-wrap">
+       <table class="ingress-table"><thead><tr><th>Referencia</th><th>Documento</th><th>Origen · Aliado</th><th>Destino · Propia</th><th>Ítems</th><th>Unidades</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="ingress-table-body"></tbody></table>
+       <p id="ingress-empty" class="ingress-empty" hidden>No hay ingresos registrados. Utiliza «Nuevo ingreso» para comenzar.</p>
+      </div>
+    </div>
+  </section>
+  <section id="ingress-wizard" class="ingress-wizard" hidden aria-labelledby="income-wizard-title">
+    <div class="ingress-back-heading">
+      <button class="ingress-back" id="ingress-back-home" type="button" title="Volver a ingresos" aria-label="Volver a ingresos">‹</button>
+      <div><h2 id="income-wizard-title">Nuevo ingreso</h2><p id="ingress-reference-label">Borrador</p></div>
+      <span id="ingress-save-indicator" class="ingress-save-indicator" role="status">Sin cambios</span>
+    </div>
+    <nav class="ingress-steps" aria-label="Pasos del ingreso">
+      <button type="button" class="ingress-step current" data-step="1" aria-current="step"><span>1</span><strong>Documento</strong></button>
+      <button type="button" class="ingress-step" data-step="2"><span>2</span><strong>Ítems</strong></button>
+      <button type="button" class="ingress-step" data-step="3"><span>3</span><strong>Validación</strong></button>
+      <button type="button" class="ingress-step" data-step="4"><span>4</span><strong>Confirmación</strong></button>
+    </nav>
+    <div class="ingress-layout">
+     <section class="income-panel ingress-main-card">
+       <div id="ingress-step-1" class="ingress-step-view">
+        <div class="income-eyebrow">PASO 1 DE 4</div><h2>Documento</h2>
+        <p class="income-subtitle">Identifica el documento que respalda el ingreso.</p>
+        <div class="income-form-grid">
+          <label>Tipo de documento <span class="required">*</span>
+            <select id="ing-doc-type"><option value="">Seleccionar...</option>
+              <option value="ORDEN_COMPRA">Orden de compra</option><option value="FACTURA">Factura</option>
+              <option value="REMISION">Remisión</option><option value="ACTA_ENTREGA">Acta de entrega</option><option value="OTRO">Otro</option></select></label>
+          <label>Número de documento <span class="required">*</span>
+            <input id="ing-doc-number" maxlength="90" placeholder="Número o referencia"></label>
+          <label>Quién despacha · ALIADO <span class="required">*</span>
+            <select id="ing-source"><option value="">Seleccionar aliado...</option></select></label>
+          <label>Fecha del documento <span class="required">*</span><input id="ing-doc-date" type="date"></label>
+          <label>Fecha de ingreso <span class="required">*</span><input id="ing-date" type="date"></label>
+          <label>Bodega que recibe · PROPIA <span class="required">*</span>
+            <select id="ing-destination"><option value="">Seleccionar bodega...</option></select></label>
+          <label class="span2">Observaciones <span class="optional">(opcional)</span>
+            <textarea id="ing-notes" rows="3" maxlength="500" placeholder="Comentarios del ingreso..."></textarea>
+            <small class="income-count"><span id="ing-notes-count">0</span> / 500</small></label>
+        </div>
+        <div class="income-upload">
+          <div class="income-upload-mark">♧</div>
+          <div class="income-upload-description"><strong>Adjuntar PDF de soporte <span class="optional">(opcional)</span></strong>
+            <small id="ing-support-label">PDF de máximo 5 MB. También puedes registrar el ingreso sin soporte.</small></div>
+          <input type="file" id="ing-support-file" accept=".pdf,application/pdf" hidden>
+          <button class="income-button secondary" id="ing-support-select" type="button">Seleccionar PDF</button>
+        </div>
+        <div class="income-file-actions" id="ing-support-actions" hidden>
+         <a id="ing-support-download" href="#" target="_blank" rel="noopener">Ver soporte adjunto</a>
+         <button type="button" id="ing-support-remove">Quitar PDF</button>
+        </div>
+       </div>
+       <div id="ingress-step-2" class="ingress-step-view" hidden>
+        <div class="income-eyebrow">PASO 2 DE 4</div><h2>Ítems</h2>
+        <p class="income-subtitle">Cada serial corresponde a una fila. Para códigos sin perfil de serie, registra la cantidad.</p>
+        <div class="ingress-item-tools">
+          <button type="button" id="ing-item-add" class="income-button primary small">＋ Agregar ítem</button>
+          <button type="button" id="ing-item-import" class="income-button secondary small">Cargar desde Excel</button>
+          <button type="button" id="ing-item-template" class="income-button ghost small">Descargar plantilla</button>
+          <input type="file" id="ing-item-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        </div>
+        <div class="ingress-table-wrap ingress-item-table-wrap">
+         <table class="ingress-table"><thead><tr><th>#</th><th>Código SAP</th><th>Descripción / Perfil</th><th>Serial</th><th>Cantidad</th><th>Observaciones</th><th>Estado</th><th></th></tr></thead><tbody id="ing-item-table"></tbody></table>
+        </div>
+        <datalist id="ing-sap-list"></datalist>
+        <p class="income-small-note" id="ing-item-note">Selecciona un SAP de la maestra. Los ítems pueden quedar incompletos mientras sean borrador.</p>
+        <div class="income-line-summary"><span id="ing-item-total">0 ítems</span><span id="ing-unit-total">0 unidades</span></div>
+       </div>
+       <div id="ingress-step-3" class="ingress-step-view" hidden>
+        <div class="income-eyebrow">PASO 3 DE 4</div><h2>Validación</h2>
+        <p class="income-subtitle">Verificamos el origen, la bodega, los SAP, cantidades y seriales antes de registrar.</p>
+        <div class="ingress-validation-head" id="ing-validation-head">Pendiente de revisión</div>
+        <div id="ing-validation-list" class="ing-validation-list"></div>
+        <div class="ingress-validation-rules">
+         <h3>Controles del ingreso</h3><div class="ingress-check-grid">
+         <span>✓ Origen ALIADO</span><span>✓ Destino PROPIA</span>
+         <span>✓ SAP activo</span><span>✓ Seriales únicos</span>
+         <span>✓ Cantidad válida</span><span>✓ Registro completo</span>
+         </div></div>
+       </div>
+       <div id="ingress-step-4" class="ingress-step-view" hidden>
+        <div class="income-eyebrow">PASO 4 DE 4</div><h2>Confirmación</h2>
+        <p class="income-subtitle">Revisa la operación antes de aplicar el ingreso definitivo a las existencias.</p>
+        <div class="ing-confirm-grid" id="ing-confirm-grid"></div>
+        <h3 class="ingress-confirm-title">Resumen de ítems</h3>
+        <div class="ingress-table-wrap ing-confirm-table"><table class="ingress-table"><thead><tr>
+          <th>SAP</th><th>Descripción</th><th>Serial</th><th>Cantidad</th></tr></thead>
+          <tbody id="ing-confirm-items"></tbody></table></div>
+        <label class="ing-confirm-check"><input type="checkbox" id="ing-confirm-ack">
+          He revisado los datos y autorizo registrar este ingreso.</label>
+        <p id="ing-confirm-block" class="income-warning" hidden></p>
+        <p class="income-small-note">Este registro es definitivo: creará existencias y movimientos trazables. No admite edición posterior.</p>
+       </div>
+       <p class="ingress-inline-message" id="ingress-message" role="status" aria-live="polite" hidden></p>
+       <footer class="ingress-actions">
+        <button class="income-button secondary" id="ing-save" type="button">Guardar borrador</button>
+        <div class="ingress-actions-right">
+         <button class="income-button secondary" id="ing-prev" type="button">Atrás</button>
+         <button class="income-button primary" id="ing-next" type="button">Siguiente →</button>
+         <button class="income-button primary" id="ing-confirm" type="button" hidden disabled>Registrar ingreso</button>
+        </div>
+       </footer>
+     </section>
+     <aside class="ingress-side" aria-label="Resumen y validación">
+       <div class="income-panel side-card"><div class="side-heading"><span class="side-icon">▣</span><h3>Resumen del documento</h3><span id="ing-aside-lines" class="side-count">0 ítems</span></div>
+        <dl class="side-summary"><div><dt>Documento</dt><dd id="ing-aside-doc">Pendiente</dd></div>
+        <div><dt>Origen · Aliado</dt><dd id="ing-aside-source">Pendiente</dd></div>
+        <div><dt>Bodega destino</dt><dd id="ing-aside-destination">Pendiente</dd></div></dl>
+       </div>
+       <div class="income-panel side-card"><div class="side-heading"><span class="side-icon light-blue">⌗</span><h3>Verificación de ítems</h3><span id="ing-aside-serial" class="side-count">0 seriales</span></div>
+         <div class="ing-side-progress"><span id="ing-progress-fill"></span></div>
+         <p id="ing-aside-progress" class="side-caption">Agrega ítems para comenzar.</p>
+       </div>
+       <div class="income-panel side-card side-alert"><div class="side-heading"><span class="side-icon warning">⚠</span><h3>Alertas e inconsistencias</h3><span id="ing-aside-issues" class="side-count orange">0</span></div>
+         <div id="ing-aside-list" class="ing-aside-list"><p>Sin alertas por ahora.</p></div>
+       </div>
+     </aside>
+    </div>
+  </section>
+ </div>
+</main>
+</div>
+</div>
+</body>
+</html>

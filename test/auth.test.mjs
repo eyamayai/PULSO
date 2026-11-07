@@ -11,9 +11,10 @@ const sql5=fs.readFileSync(new URL('../cloudflare/migrations/0005_usuarios_permi
 const sql6=fs.readFileSync(new URL('../cloudflare/migrations/0006_vinculo_personal_usuarios.sql',import.meta.url),'utf8');
 const sql7=fs.readFileSync(new URL('../cloudflare/migrations/0007_bodegas_aliados.sql',import.meta.url),'utf8');
 const sql8=fs.readFileSync(new URL('../cloudflare/migrations/0008_departamentos_aliados.sql',import.meta.url),'utf8');
+const sql9=fs.readFileSync(new URL('../cloudflare/migrations/0009_ingresos.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse)database.exec(sql8);
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse)database.exec(sql8); database.exec(sql9);
   const wrap = stmt => {
     let args=[];
     return {
@@ -707,4 +708,143 @@ test('La maestra Personal sigue limitada a los 3 departamentos operativos',async
  }),x.env);
  assert.equal(r.status,400);
  assert.equal(x.database.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,0);
+});
+
+
+function ingFixtures(x){
+ const db=x.database,actor=db.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ const source=randomUUID(),destination=randomUUID(),badDest=randomUUID();
+ for(const [id,centro,admin,active,department] of [
+  [source,'C100','ALIADO',1,'CUNDINAMARCA'],
+  [destination,'C200','PROPIA',1,'CESAR'],
+  [badDest,'C300','PROPIA',0,'CESAR']])
+  db.prepare('INSERT INTO master_logistics_locations(id,centro,almacen,description,administration,department,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id,centro,'A001','Bodega '+centro,admin,department,active,actor,actor);
+ const sapSerial='SAP-10001',sapBulk='SAP-10002';
+ for(const [sap,profile] of [[sapSerial,'CON PERFIL DE SERIE'],[sapBulk,'SIN PERFIL DE SERIE']])
+  db.prepare('INSERT INTO master_sap_catalog(id,sap_code,description,item_type,serial_profile,unit,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(randomUUID(),sap,'Equipo '+sap,'EQUIPO',profile,'UND',1,actor,actor);
+ return {source,destination,badDest,sapSerial,sapBulk};
+}
+async function ingApi(x,cookie,path='',method='GET',data=null,origin=root){
+ return worker.fetch(x.req('/api/ingresos'+path,{
+  method,origin,headers:{cookie,...(method!=='GET'?{origin}:{})},...(data===null?{}:{data})
+ }),x.env);
+}
+async function ingNew(x,cookie){
+ const response=await ingApi(x,cookie,'','POST');
+ assert.equal(response.status,201);
+ return (await response.json()).id;
+}
+function ingPayload(f){
+ return {document:{
+  document_type:'REMISION',document_number:'REM-2026-1',
+  document_date:'2026-11-06',received_date:'2026-11-07',
+  source_id:f.source,destination_id:f.destination,notes:'PDF opcional'
+ },items:[
+  {sap_code:f.sapSerial,serial:'EQ-001',quantity:1,notes:''},
+  {sap_code:f.sapBulk,serial:'',quantity:5,notes:''}
+ ]};
+}
+test('Ingresos: acceso de administrador y borradores sin movimientos',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ assert.equal((await ingApi(x,'')).status,401);
+ assert.equal((await ingApi(x,cookie,'/catalogos')).status,200);
+ assert.equal((await ingApi(x,cookie,'','POST',null,'https://externo.example')).status,403);
+ const id=await ingNew(x,cookie);
+ let payload=ingPayload(f);
+ payload.document.document_number='';
+ payload.items[0].serial='';
+ payload.items[0].quantity=0;
+ const save=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal(save.status,200);
+ const v=(await save.json()).validation;
+ assert.equal(v.valid,false);
+ assert.ok(v.errors.some(y=>y.code==='SERIAL_OBLIGATORIO'));
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,0);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,0);
+});
+test('Ingresos: confirma sin PDF y registra serial, cantidades y movimiento en una transacción',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie);
+ const save=await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f));
+ assert.equal(save.status,200);
+ const v=(await save.json()).validation;
+ assert.equal(v.valid,true);
+ assert.ok(v.warnings.some(y=>y.code==='PDF_OPCIONAL'));
+ const confirm=await ingApi(x,cookie,'/'+id+'/confirmar','POST');
+ assert.equal(confirm.status,200);
+ assert.match((await confirm.json()).reference,/^ING-\d{8}-[A-F0-9]{8}$/);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_audit WHERE action="REGISTRAR"').get().n,1);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,409);
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f))).status,409);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+});
+test('Ingresos: serial repetido bloquea segundo documento sin sumar cantidades',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const a=await ingNew(x,cookie);
+ await ingApi(x,cookie,'/'+a,'PATCH',ingPayload(f));
+ assert.equal((await ingApi(x,cookie,'/'+a+'/confirmar','POST')).status,200);
+ const b=await ingNew(x,cookie);
+ await ingApi(x,cookie,'/'+b,'PATCH',ingPayload(f));
+ const blocked=await ingApi(x,cookie,'/'+b+'/confirmar','POST');
+ assert.equal(blocked.status,422);
+ assert.ok((await blocked.json()).validation.errors.some(y=>y.code==='SERIAL_EXISTENTE'));
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,5);
+});
+test('Ingresos: origen y destino deben corresponder a ALIADO y PROPIA activos',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie),payload=ingPayload(f);
+ payload.document.source_id=f.destination;
+ payload.document.destination_id=f.badDest;
+ payload.items[0].sap_code='SAP-INEXISTENTE';
+ const response=await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ assert.equal(response.status,200);
+ const errors=(await response.json()).validation.errors.map(y=>y.code);
+ assert.ok(errors.includes('ORIGEN_INVALIDO'));
+ assert.ok(errors.includes('DESTINO_INVALIDO'));
+ assert.ok(errors.includes('SAP_INVALIDO'));
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,422);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,0);
+});
+test('Ingresos: integridad SQL bloquea serial ausente incluso saltando la API',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie),payload=ingPayload(f);
+ payload.items[0].serial='';
+ await ingApi(x,cookie,'/'+id,'PATCH',payload);
+ const actor=x.database.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ assert.throws(()=>x.database.prepare("UPDATE ingress_documents SET status='REGISTRADO',registered_by=? WHERE id=?").run(actor,id),/SERIAL_OBLIGATORIO/);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,0);
+ assert.equal(x.database.prepare('SELECT status FROM ingress_documents WHERE id=?').get(id).status,'BORRADOR');
+});
+test('Ingresos: no permite más de 500 ítems ni guardar desde otro origen',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie),payload=ingPayload(f);
+ payload.items=Array.from({length:501},()=>({sap_code:f.sapBulk,serial:'',quantity:1,notes:''}));
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',payload)).status,400);
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',ingPayload(f),'https://externo.example')).status,403);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_items').get().n,0);
+});
+
+test('Ingresos: PDF privado opcional se adjunta, descarga y retira de borrador',async()=>{
+ const x=setup(),cookie=await adminCookie(x),id=await ingNew(x,cookie);
+ const bytes=new TextEncoder().encode('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+ const upload=new Request(root+'/api/ingresos/'+id+'/soporte',{
+  method:'POST',headers:{cookie,origin:root,'Content-Type':'application/pdf','x-file-name':'soporte.pdf'},
+  body:bytes
+ });
+ const stored=await worker.fetch(upload,x.env);
+ assert.equal(stored.status,201,'El PDF se debe conservar correctamente');
+ assert.equal((await worker.fetch(x.req('/api/ingresos/'+id+'/soporte'),x.env)).status,401);
+ const download=await ingApi(x,cookie,'/'+id+'/soporte');
+ assert.equal(download.status,200);
+ assert.equal(download.headers.get('content-type'),'application/pdf');
+ assert.deepEqual(new Uint8Array(await download.arrayBuffer()),bytes);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/soporte','DELETE')).status,200);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/soporte')).status,404);
 });

@@ -917,15 +917,350 @@ async function bulkWarehouses(request,env,user){
   return json({ok:true,inserted:normalized.length,total:normalized.length},201);
 }
 
+
+/* INGRESOS: validación de borradores y contabilización atómica en SQLite D1.
+ * La validación de pantalla es informativa: los triggers D1 vuelven a validar
+ * dentro de la transacción que inserta seriales, stock y movimientos.
+ */
+const ING_DOCUMENT_TYPES = new Set(['ORDEN_COMPRA','FACTURA','REMISION','ACTA_ENTREGA','OTRO']);
+const ING_PDF_MAX = 5 * 1024 * 1024;
+const ING_PDF_CHUNK = 128 * 1024;
+const ING_MAX_ITEMS = 500;
+const ING_ID = /^[0-9a-f-]{36}$/i;
+const ingBad = (error,status=400,extra={})=>json({ok:false,error,...extra},status);
+const ingOwn = (o,k)=>Object.prototype.hasOwnProperty.call(o,k);
+function ingDate(s){
+  if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;
+  const [y,m,d]=s.split('-').map(Number);
+  if(y<2000||y>2100)return false;
+  const date=new Date(Date.UTC(y,m-1,d));
+  return date.getUTCFullYear()===y&&date.getUTCMonth()+1===m&&date.getUTCDate()===d;
+}
+async function ingBody(request,max=350000){
+  if(!sameOrigin(request))return {error:'ORIGEN_NO_AUTORIZADO',status:403};
+  if(!/application\/json/i.test(request.headers.get('content-type')||''))
+    return {error:'TIPO_NO_VALIDO',status:415};
+  const str=await request.text();
+  if(str.length>max)return {error:'SOLICITUD_DEMASIADO_GRANDE',status:413};
+  try{
+    const data=JSON.parse(str);
+    if(!data||typeof data!=='object'||Array.isArray(data))throw new Error('bad');
+    return {data};
+  }catch{return {error:'DATOS_INVALIDOS',status:400};}
+}
+const ingDocKeys=['document_type','document_number','document_date','received_date','source_id','destination_id','notes'];
+function ingNormalizeDocument(doc){
+  if(!doc||typeof doc!=='object'||Array.isArray(doc)||!fieldsOf(doc,ingDocKeys))return null;
+  const result={
+    document_type:trimmed(doc.document_type,35).toUpperCase(),
+    document_number:trimmed(doc.document_number,90),
+    document_date:trimmed(doc.document_date,10),
+    received_date:trimmed(doc.received_date,10),
+    source_id:doc.source_id||null,
+    destination_id:doc.destination_id||null,
+    notes:trimmed(doc.notes,500)
+  };
+  if(Object.values(result).some(x=>typeof x==='string' && x.length>500)||
+     result.document_number.length>90||result.notes.length>500||
+     (result.document_type&&!ING_DOCUMENT_TYPES.has(result.document_type))||
+     (result.document_date&&!ingDate(result.document_date))||
+     (result.received_date&&!ingDate(result.received_date))||
+     (result.source_id&&!ING_ID.test(result.source_id))||
+     (result.destination_id&&!ING_ID.test(result.destination_id)))return null;
+  return result;
+}
+function ingNormalizeItems(items){
+  if(!Array.isArray(items)||items.length>ING_MAX_ITEMS)return null;
+  const output=[];
+  for(const record of items){
+    if(!record||typeof record!=='object'||Array.isArray(record)||
+       !fieldsOf(record,['sap_code','serial','quantity','notes']))return null;
+    const sap_code=trimmed(record.sap_code,50).toUpperCase();
+    const serial=trimmed(record.serial,100).toUpperCase();
+    const notes=trimmed(record.notes,240);
+    const quantity=Number(record.quantity);
+    if(sap_code.length>50||serial.length>100||notes.length>240||
+       !Number.isInteger(quantity)||quantity>1000000||quantity< -1000000)return null;
+    output.push({id:crypto.randomUUID(),position:output.length+1,sap_code,serial,quantity,notes});
+  }
+  return output;
+}
+async function ingGet(db,id){
+  const document=await db.prepare(
+    "SELECT d.*,src.description AS source_description,src.centro AS source_centro,src.almacen AS source_almacen,"+
+    "dst.description AS destination_description,dst.centro AS destination_centro,dst.almacen AS destination_almacen,"+
+    "u.display_name AS author_name FROM ingress_documents d "+
+    "LEFT JOIN master_logistics_locations src ON src.id=d.source_id "+
+    "LEFT JOIN master_logistics_locations dst ON dst.id=d.destination_id "+
+    "LEFT JOIN app_users u ON u.id=d.created_by WHERE d.id=?"
+  ).bind(id).first();
+  if(!document)return null;
+  const list=await db.prepare(
+    "SELECT i.id,i.position,i.sap_code,i.serial,i.quantity,i.notes,"+
+    "s.description AS sap_description,s.serial_profile,s.unit,s.item_type "+
+    "FROM ingress_items i LEFT JOIN master_sap_catalog s ON s.sap_code=i.sap_code "+
+    "WHERE i.ingress_id=? ORDER BY i.position"
+  ).bind(id).all();
+  return {document,items:list.results||[]};
+}
+async function ingValidate(db,document,items){
+  const errors=[],warnings=[];
+  const add=(code,message,step,index=null)=>errors.push({code,message,step,index,blocking:true});
+  const documentType=String(document.document_type||'');
+  if(!ING_DOCUMENT_TYPES.has(documentType))add('DOCUMENTO_TIPO','Selecciona el tipo de documento.',1);
+  if(!String(document.document_number||'').trim())add('DOCUMENTO_NUMERO','Ingresa el número de documento.',1);
+  if(!ingDate(document.document_date))add('DOCUMENTO_FECHA','Indica una fecha válida del documento.',1);
+  if(!ingDate(document.received_date))add('INGRESO_FECHA','Indica una fecha de ingreso válida.',1);
+  const ids=[document.source_id,document.destination_id].filter(Boolean);
+  const locations=(await db.prepare(
+    'SELECT id,description,administration,is_active FROM master_logistics_locations WHERE id IN (SELECT value FROM json_each(?))'
+  ).bind(JSON.stringify(ids)).all()).results||[];
+  const warehouse=new Map(locations.map(x=>[x.id,x]));
+  const origin=warehouse.get(document.source_id);
+  const destination=warehouse.get(document.destination_id);
+  if(!origin||origin.administration!=='ALIADO'||origin.is_active!==1)
+    add('ORIGEN_INVALIDO','Selecciona un almacén ALIADO activo como remitente.',1);
+  if(!destination||destination.administration!=='PROPIA'||destination.is_active!==1)
+    add('DESTINO_INVALIDO','Selecciona una bodega PROPIA activa como destino.',1);
+  if(!document.support_size)warnings.push({code:'PDF_OPCIONAL',message:'Ingreso sin PDF de soporte. Puedes continuar.',step:1});
+  if(!items.length)add('ITEMS_VACIOS','Agrega al menos un ítem para registrar el ingreso.',2);
+  const sapCodes=[...new Set(items.map(i=>i.sap_code).filter(Boolean))];
+  const catalog=(await db.prepare(
+    'SELECT sap_code,description,serial_profile,unit,is_active FROM master_sap_catalog WHERE sap_code IN (SELECT value FROM json_each(?))'
+  ).bind(JSON.stringify(sapCodes)).all()).results||[];
+  const sapMap=new Map(catalog.map(x=>[x.sap_code,x]));
+  const seen=new Set(),serials=[];
+  let unitCount=0,serialized=0;
+  for(let index=0;index<items.length;index++){
+    const item=items[index],n=index+1;
+    const sap=sapMap.get(item.sap_code);
+    if(!sap||sap.is_active!==1){
+      add('SAP_INVALIDO','Ítem '+n+': el código SAP no existe o está inactivo.',2,index);
+    }
+    if(!Number.isInteger(item.quantity)||item.quantity<1){
+      add('CANTIDAD_INVALIDA','Ítem '+n+': la cantidad debe ser un entero positivo.',2,index);
+    }else unitCount+=item.quantity;
+    const serial=String(item.serial||'').trim().toUpperCase();
+    if(sap?.serial_profile==='CON PERFIL DE SERIE'){
+      serialized++;
+      if(!serial||['SIN PERFIL DE SERIE','N/A','NA','SIN SERIAL'].includes(serial))
+        add('SERIAL_OBLIGATORIO','Ítem '+n+': registra el serial obligatorio.',2,index);
+      if(item.quantity!==1)
+        add('CANTIDAD_SERIAL','Ítem '+n+': cada serial debe tener cantidad 1.',2,index);
+    }else if(sap?.serial_profile==='SIN PERFIL DE SERIE'&&serial){
+      add('SERIAL_NO_PERMITIDO','Ítem '+n+': este SAP no maneja serial; deja el campo vacío.',2,index);
+    }
+    if(serial){
+      if(seen.has(serial))add('SERIAL_REPETIDO','Ítem '+n+': el serial se repite en este documento.',2,index);
+      seen.add(serial);serials.push(serial);
+    }
+  }
+  if(serials.length){
+    const current=(await db.prepare(
+      'SELECT serial FROM inventory_serials WHERE serial COLLATE NOCASE IN (SELECT value FROM json_each(?))'
+    ).bind(JSON.stringify(serials)).all()).results||[];
+    const duplicated=new Set(current.map(x=>x.serial.toUpperCase()));
+    for(let index=0;index<items.length;index++){
+      const serial=String(items[index].serial||'').trim().toUpperCase();
+      if(serial&&duplicated.has(serial))
+        add('SERIAL_EXISTENTE','Ítem '+(index+1)+': el serial ya está registrado en PULSO.',2,index);
+    }
+  }
+  return {valid:errors.length===0,errors,warnings,
+    totals:{lines:items.length,units:unitCount,serialized,
+      unprofiled:items.length-serialized,blocked:errors.length,observed:warnings.length}};
+}
+async function ingAudit(db,id,user,action,details={}){
+  return db.prepare('INSERT INTO ingress_audit(id,ingress_id,actor_id,action,details) VALUES (?,?,?,?,?)')
+    .bind(crypto.randomUUID(),id,user,action,JSON.stringify(details));
+}
+async function ingresosHandler(request,env,user,path){
+  if(!user)return ingBad('NO_AUTENTICADO',401);
+  // Los roles operativos se autorizarán por módulo cuando existan permisos granulares.
+  if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
+  const method=request.method,db=env.DB;
+  if(path==='/api/ingresos/catalogos'){
+    if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+    const [warehouses,sap]=await Promise.all([
+      db.prepare("SELECT id,centro,almacen,description,administration,department FROM master_logistics_locations WHERE is_active=1 ORDER BY administration,description COLLATE NOCASE LIMIT 2000").all(),
+      db.prepare("SELECT sap_code,description,serial_profile,unit,item_type FROM master_sap_catalog WHERE is_active=1 ORDER BY sap_code LIMIT 3000").all()
+    ]);
+    return json({ok:true,warehouses:warehouses.results||[],catalog:sap.results||[]});
+  }
+  if(path==='/api/ingresos'){
+    if(method==='GET'){
+      const list=await db.prepare(
+        "SELECT d.id,d.reference,d.status,d.document_type,d.document_number,d.received_date,d.created_at,d.updated_at,"+
+        "d.support_size,src.description AS source_description,dst.description AS destination_description,"+
+        "(SELECT COUNT(*) FROM ingress_items i WHERE i.ingress_id=d.id) AS item_count,"+
+        "(SELECT COALESCE(SUM(i.quantity),0) FROM ingress_items i WHERE i.ingress_id=d.id) AS total_units "+
+        "FROM ingress_documents d LEFT JOIN master_logistics_locations src ON src.id=d.source_id "+
+        "LEFT JOIN master_logistics_locations dst ON dst.id=d.destination_id "+
+        "ORDER BY d.created_at DESC,d.id DESC LIMIT 500"
+      ).all();
+      return json({ok:true,items:list.results||[]});
+    }
+    if(method==='POST'){
+      if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+      const id=crypto.randomUUID();
+      await db.batch([
+        db.prepare('INSERT INTO ingress_documents(id,created_by,updated_by) VALUES (?,?,?)').bind(id,user.id,user.id),
+        await ingAudit(db,id,user.id,'CREAR_BORRADOR')
+      ]);
+      return json({ok:true,id,status:'BORRADOR'},201);
+    }
+    return ingBad('METODO_NO_PERMITIDO',405);
+  }
+  const match=/^\/api\/ingresos\/([0-9a-f-]{36})(?:\/(validar|confirmar|soporte))?$/i.exec(path);
+  if(!match)return ingBad('RUTA_NO_DISPONIBLE',404);
+  const id=match[1],action=match[2]||'';
+  if(!ING_ID.test(id))return ingBad('ID_INVALIDO',400);
+  let item=await ingGet(db,id);
+  if(!item)return ingBad('INGRESO_NO_ENCONTRADO',404);
+  const doc=item.document;
+  if(action==='soporte'){
+    if(method==='GET'){
+      if(!doc.support_size)return ingBad('SIN_SOPORTE',404);
+      const parts=(await db.prepare('SELECT bytes FROM ingress_support_chunks WHERE ingress_id=? ORDER BY chunk_index').bind(id).all()).results||[];
+      const total=parts.reduce((sum,p)=>sum+p.bytes.byteLength,0);
+      if(total!==doc.support_size)return ingBad('SOPORTE_INCOMPLETO',503);
+      const binary=new Uint8Array(total);let offset=0;
+      for(const p of parts){binary.set(p.bytes,offset);offset+=p.bytes.byteLength;}
+      const filename=(doc.support_filename||'soporte.pdf').replace(/[^a-zA-Z0-9._ -]/g,'_');
+      return new Response(binary,{status:200,headers:{
+        'content-type':'application/pdf','content-length':String(total),
+        'content-disposition':'attachment; filename="'+filename+'"',
+        'cache-control':'private, no-store','x-content-type-options':'nosniff',
+        'content-security-policy':'sandbox'
+      }});
+    }
+    if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+    if(doc.status!=='BORRADOR')return ingBad('INGRESO_INMUTABLE',409);
+    if(method==='DELETE'){
+      await db.batch([
+        db.prepare('DELETE FROM ingress_support_chunks WHERE ingress_id=?').bind(id),
+        db.prepare("UPDATE ingress_documents SET support_filename='',support_size=0,support_sha256='',updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=?").bind(user.id,id),
+        await ingAudit(db,id,user.id,'QUITAR_PDF')
+      ]);
+      return json({ok:true});
+    }
+    if(method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+    if(!/^application\/pdf(?:\s*;.*)?$/i.test(request.headers.get('content-type')||''))
+      return ingBad('PDF_REQUERIDO',415);
+    const statedSize=Number(request.headers.get('content-length')||0);
+    if(statedSize>ING_PDF_MAX)return ingBad('PDF_DEMASIADO_GRANDE',413);
+    const bytes=new Uint8Array(await request.arrayBuffer());
+    if(bytes.byteLength>ING_PDF_MAX||!bytes.byteLength)return ingBad('PDF_DEMASIADO_GRANDE',413);
+    if(new TextDecoder().decode(bytes.subarray(0,5))!=='%PDF-')
+      return ingBad('PDF_INVALIDO',400);
+    const name=(request.headers.get('x-file-name')||'soporte.pdf').replace(/[^a-zA-Z0-9._ -]/g,'_').slice(0,110);
+    if(!/\.pdf$/i.test(name))return ingBad('PDF_INVALIDO',400);
+    const digest=hex(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)));
+    const stmts=[db.prepare('DELETE FROM ingress_support_chunks WHERE ingress_id=?').bind(id)];
+    for(let i=0;i<bytes.length;i+=ING_PDF_CHUNK){
+      stmts.push(db.prepare('INSERT INTO ingress_support_chunks(ingress_id,chunk_index,bytes) VALUES (?,?,?)')
+        .bind(id,Math.floor(i/ING_PDF_CHUNK),bytes.slice(i,i+ING_PDF_CHUNK)));
+    }
+    stmts.push(db.prepare('UPDATE ingress_documents SET support_filename=?,support_size=?,support_sha256=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=? AND status=?')
+      .bind(name,bytes.byteLength,digest,user.id,id,'BORRADOR'));
+    stmts.push(await ingAudit(db,id,user.id,'ADJUNTAR_PDF',{name,size:bytes.byteLength,sha256:digest}));
+    try{await db.batch(stmts);}
+    catch(e){return ingBad('PDF_NO_GUARDADO',409);}
+    return json({ok:true,name,size:bytes.byteLength,sha256:digest},201);
+  }
+  if(action==='validar'){
+    if(method!=='GET'&&method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+    if(method==='POST'&&!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+    const validation=await ingValidate(db,doc,item.items);
+    return json({ok:true,validation});
+  }
+  if(action==='confirmar'){
+    if(method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+    if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+    if(doc.status!=='BORRADOR')return ingBad('INGRESO_YA_REGISTRADO',409);
+    const validation=await ingValidate(db,doc,item.items);
+    if(!validation.valid)return ingBad('VALIDACION_BLOQUEANTE',422,{validation});
+    const now=new Date();
+    const ref='ING-'+now.toISOString().slice(0,10).replace(/-/g,'')+'-'+id.slice(0,8).toUpperCase();
+    try{
+      const results=await db.batch([
+        db.prepare("UPDATE ingress_documents SET status='REGISTRADO',reference=?,registered_by=?,registered_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=? AND status='BORRADOR'")
+          .bind(ref,user.id,user.id,id),
+        await ingAudit(db,id,user.id,'REGISTRAR',{reference:ref,lines:item.items.length,units:validation.totals.units})
+      ]);
+      if((results[0]?.meta?.changes??results[0]?.changes)!==1)
+        return ingBad('INGRESO_YA_REGISTRADO',409);
+    }catch(e){
+      // No se filtran detalles de la consulta SQL ni errores internos.
+      return ingBad('REVALIDAR_INGRESO',409);
+    }
+    return json({ok:true,id,reference:ref,status:'REGISTRADO',totals:validation.totals});
+  }
+  if(action)return ingBad('RUTA_NO_DISPONIBLE',404);
+  if(method==='GET'){
+    const validation=await ingValidate(db,doc,item.items);
+    return json({ok:true,...item,validation});
+  }
+  if(method==='DELETE'){
+    if(!sameOrigin(request))return ingBad('ORIGEN_NO_AUTORIZADO',403);
+    if(doc.status!=='BORRADOR')return ingBad('INGRESO_INMUTABLE',409);
+    await db.batch([
+      db.prepare('DELETE FROM ingress_support_chunks WHERE ingress_id=?').bind(id),
+      db.prepare('DELETE FROM ingress_items WHERE ingress_id=?').bind(id),
+      db.prepare('DELETE FROM ingress_audit WHERE ingress_id=?').bind(id),
+      db.prepare("DELETE FROM ingress_documents WHERE id=? AND status='BORRADOR'").bind(id)
+    ]);
+    return json({ok:true});
+  }
+  if(method!=='PATCH')return ingBad('METODO_NO_PERMITIDO',405);
+  if(doc.status!=='BORRADOR')return ingBad('INGRESO_INMUTABLE',409);
+  const parsed=await ingBody(request);
+  if(parsed.error)return ingBad(parsed.error,parsed.status);
+  if(!fieldsOf(parsed.data,['document','items'])||!ingOwn(parsed.data,'document')||!ingOwn(parsed.data,'items'))
+    return ingBad('DATOS_INVALIDOS');
+  const normalized=ingNormalizeDocument(parsed.data.document);
+  const items=ingNormalizeItems(parsed.data.items);
+  if(!normalized||!items)return ingBad('DATOS_INVALIDOS');
+  const values=Object.values(normalized);
+  const itemRows=JSON.stringify(items);
+  const update=db.prepare(
+    'UPDATE ingress_documents SET '+Object.keys(normalized).map(k=>k+'=?').join(',')+
+    ',updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?'
+  ).bind(...values,user.id,id,'BORRADOR');
+  const deleteItems=db.prepare('DELETE FROM ingress_items WHERE ingress_id=?').bind(id);
+  const insertItems=db.prepare(
+    "INSERT INTO ingress_items(id,ingress_id,position,sap_code,serial,quantity,notes) "+
+    "SELECT json_extract(value,'$.id'),?,json_extract(value,'$.position'),"+
+    "json_extract(value,'$.sap_code'),json_extract(value,'$.serial'),"+
+    "json_extract(value,'$.quantity'),json_extract(value,'$.notes') "+
+    "FROM json_each(?)"
+  ).bind(id,itemRows);
+  try{
+    await db.batch([update,deleteItems,insertItems,
+      await ingAudit(db,id,user.id,'GUARDAR_BORRADOR',{items:items.length})]);
+  }catch{return ingBad('NO_SE_PUDO_GUARDAR',409);}
+  item=await ingGet(db,id);
+  return json({ok:true,id,status:'BORRADOR',validation:await ingValidate(db,item.document,item.items)});
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     try {
-      if (pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
+      if (pathname.startsWith('/api/ingresos') || pathname === '/ingresos' || pathname === '/ingresos.html' || pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
         if (!env.DB) return json({ok: false, error: 'SERVICIO_NO_CONFIGURADO'}, 503);
         if (pathname === '/api/auth/health' && request.method === 'GET') {
           await env.DB.prepare('SELECT id FROM app_users LIMIT 1').first();
           return json({ok: true, service: 'pulso-auth', ready: true});
+        }
+        if(pathname.startsWith('/api/ingresos'))
+          return await ingresosHandler(request,env,await currentUser(request,env),pathname);
+        if(pathname==='/ingresos'||pathname==='/ingresos.html'){
+          if(request.method!=='GET'&&request.method!=='HEAD')return ingBad('METODO_NO_PERMITIDO',405);
+          const person=await currentUser(request,env);
+          if(!person)return go('/main');
+          if(person.role!=='ADMIN')return go('/inicio');
+          return securePage(await env.ASSETS.fetch(request));
         }
         if (pathname === '/api/auth/activar') return await acceptInvitation(request,env);
         if (pathname==='/api/usuarios/vincular-personal')

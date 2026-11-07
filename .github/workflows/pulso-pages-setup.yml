@@ -13,6 +13,7 @@ on:
       - 'cloudflare/migrations/0006_vinculo_personal_usuarios.sql'
       - 'cloudflare/migrations/0007_bodegas_aliados.sql'
       - 'cloudflare/migrations/0008_departamentos_aliados.sql'
+      - 'cloudflare/migrations/0009_ingresos.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -53,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -80,6 +81,12 @@ jobs:
           grep -q 'NATIONAL_WAREHOUSE_DEPARTMENTS' pages/auth-worker.mjs
           grep -q 'CUNDINAMARCA' cloudflare/migrations/0008_departamentos_aliados.sql
           node --check pages/auth-worker.mjs
+          node --check pages/ingresos.js
+          grep -q 'id="ingress-wizard"' pages/ingresos.html
+          grep -q 'id="ing-confirm"' pages/ingresos.html
+          grep -q 'href="/ingresos"' pages/inicio.html
+          grep -q 'href="/ingresos"' pages/maestras.html
+          grep -q "CREATE TRIGGER IF NOT EXISTS ingress_ready_guard" cloudflare/migrations/0009_ingresos.sql
           grep -q 'usuarios.js' pages/maestras.html
           grep -q 'id="user-invite-dialog"' pages/maestras.html
           grep -q 'activation-form' pages/activar.html
@@ -152,6 +159,12 @@ jobs:
             echo "La estructura nacional de Bodegas y Aliados ya está aplicada"
           fi
 
+      - name: Crear tablas operativas de Ingresos sin modificar Maestras
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0009_ingresos.sql
+
       - name: Preparar administrador inicial si fue autorizado
         env:
           PULSO_ADMIN_EMAIL: ${{ secrets.PULSO_ADMIN_EMAIL }}
@@ -173,7 +186,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/activar.html pages/activar.js pages/activar.css pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/activar.html pages/activar.js pages/activar.css pages/_headers "$RUNNER_TEMP/pulso-public/"
           cp "$RUNNER_TEMP/pulso-excel/node_modules/exceljs/dist/exceljs.min.js" "$RUNNER_TEMP/pulso-public/exceljs.min.js"
           cp pages/auth-worker.mjs "$RUNNER_TEMP/pulso-public/_worker.js"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
@@ -209,6 +222,13 @@ jobs:
           BODEGAS_IMPORT_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/maestras/bodegas/import" || true)
           CATALOGO_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/maestras/catalogo" || true)
           IMPORT_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/maestras/import" || true)
+          INGRESOS_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/ingresos" || true)
+          INGRESOS_API_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/ingresos" || true)
+          INGRESOS_CAT_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/ingresos/catalogos" || true)
+          if [ "$INGRESOS_HTTP" != '302' ] || [ "$INGRESOS_API_HTTP" != '401' ] || [ "$INGRESOS_CAT_HTTP" != '401' ]; then
+            echo "Ingresos no está protegido: página=$INGRESOS_HTTP API=$INGRESOS_API_HTTP catálogos=$INGRESOS_CAT_HTTP" >&2
+            exit 1
+          fi
           USERS_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/usuarios" || true)
           LINK_HTTP=$(curl --silent --show-error --max-time 12 --output /dev/null --write-out '%{http_code}' "$ROOT/api/usuarios/vincular-personal" || true)
           if [ "$LINK_HTTP" != '401' ]; then
@@ -231,7 +251,7 @@ jobs:
               exit 1
             fi
           done
-          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js usuarios.js personal-access.js bodegas.js maestras.css activar.js activar.css exceljs.min.js; do
+          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js usuarios.js personal-access.js bodegas.js ingresos.js ingresos.css maestras.css activar.js activar.css exceljs.min.js; do
             CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
             if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
               echo "Falta recurso de Inicio: $asset (HTTP $CODE)" >&2
