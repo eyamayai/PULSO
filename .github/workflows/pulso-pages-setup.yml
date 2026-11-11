@@ -21,6 +21,7 @@ on:
       - 'cloudflare/migrations/0014_despachos_tecnicos.sql'
       - 'cloudflare/migrations/0015_despachos_masivos.sql'
       - 'cloudflare/migrations/0016_reinicio_operativo_20261111.sql'
+      - 'cloudflare/migrations/0017_apertura_saldos_iniciales.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -61,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql cloudflare/migrations/0015_despachos_masivos.sql cloudflare/migrations/0016_reinicio_operativo_20261111.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/saldos-iniciales.html pages/saldos-iniciales.css pages/saldos-iniciales.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql cloudflare/migrations/0015_despachos_masivos.sql cloudflare/migrations/0016_reinicio_operativo_20261111.sql cloudflare/migrations/0017_apertura_saldos_iniciales.sql pages/saldos-iniciales.html pages/saldos-iniciales.js pages/saldos-iniciales.css; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -93,6 +94,9 @@ jobs:
           node --check pages/ingresos.js
           node --check pages/despachos.js
           node --check pages/despachos-masivo.js
+          node --check pages/saldos-iniciales.js
+          grep -q 'id="opening-preview"' pages/saldos-iniciales.html
+          grep -q 'id="ingress-opening-link"' pages/ingresos.html
           grep -q 'id="dispatch-mass-preview"' pages/despachos.html
           grep -q 'id="dispatch-mass-confirm"' pages/despachos.html
           grep -q 'id="dispatch-wizard"' pages/despachos.html
@@ -203,6 +207,8 @@ jobs:
           fi
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0014_despachos_tecnicos.sql
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0015_despachos_masivos.sql
+          # Debe ejecutarse después de 0012 para conservar la excepción de apertura única.
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0017_apertura_saldos_iniciales.sql
 
       # Respaldo TEMPORAL de D1, no se publica como artifact porque el repositorio
       # es público y el respaldo incluiría cuentas, contraseñas cifradas y Maestras.
@@ -258,7 +264,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pulso-public"
-          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/_headers "$RUNNER_TEMP/pulso-public/"
+          cp pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/saldos-iniciales.html pages/saldos-iniciales.css pages/saldos-iniciales.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/_headers "$RUNNER_TEMP/pulso-public/"
           cp "$RUNNER_TEMP/pulso-excel/node_modules/exceljs/dist/exceljs.min.js" "$RUNNER_TEMP/pulso-public/exceljs.min.js"
           cp pages/auth-worker.mjs "$RUNNER_TEMP/pulso-public/_worker.js"
           npx --yes wrangler@4.157.0 pages deploy "$RUNNER_TEMP/pulso-public" --project-name pulso-mintic --branch main
@@ -330,7 +336,7 @@ jobs:
               exit 1
             fi
           done
-          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js usuarios.js personal-access.js bodegas.js ingresos.js ingresos.css despachos.js despachos.css despachos-masivo.js maestras.css activar.js activar.css exceljs.min.js; do
+          for asset in inicio-ui.js pulso.css maestras.js maestras-import.js usuarios.js personal-access.js bodegas.js ingresos.js ingresos.css despachos.js despachos.css despachos-masivo.js saldos-iniciales.js saldos-iniciales.css maestras.css activar.js activar.css exceljs.min.js; do
             CODE=$(curl --silent --show-error --max-time 12 --output "$RUNNER_TEMP/$asset" --write-out '%{http_code}' "$ROOT/$asset" || true)
             if [ "$CODE" != '200' ] || [ ! -s "$RUNNER_TEMP/$asset" ]; then
               echo "Falta recurso de Inicio: $asset (HTTP $CODE)" >&2

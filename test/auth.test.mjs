@@ -19,9 +19,10 @@ const sql13=fs.readFileSync(new URL('../cloudflare/migrations/0013_valor_unitari
 const sql14=fs.readFileSync(new URL('../cloudflare/migrations/0014_despachos_tecnicos.sql',import.meta.url),'utf8');
 const sql15=fs.readFileSync(new URL('../cloudflare/migrations/0015_despachos_masivos.sql',import.meta.url),'utf8');
 const sql16=fs.readFileSync(new URL('../cloudflare/migrations/0016_reinicio_operativo_20261111.sql',import.meta.url),'utf8');
+const sql17=fs.readFileSync(new URL('../cloudflare/migrations/0017_apertura_saldos_iniciales.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);database.exec(sql15);}
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);database.exec(sql15);database.exec(sql17);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -1718,4 +1719,149 @@ test('Reinicio 2026-11-11: borra Ingresos y Despachos completos y conserva cada 
  assert.ok(db.prepare('SELECT id FROM ingress_documents WHERE id=?').get(laterIngress));
  assert.ok(db.prepare('SELECT id FROM dispatch_documents WHERE id=?').get(laterDispatch));
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM pulso_operational_reset_events').get().n,1);
+});
+
+
+/* Saldos iniciales: proceso único, aislado de Ingresos ordinarios. */
+async function openingApi(x,cookie,path='',method='GET',data=null,origin=root){
+ return worker.fetch(x.req('/api/saldos-iniciales'+path,{
+  method,origin,headers:{cookie,...(method!=='GET'?{origin}:{})},
+  ...(data===null?{}:{data})
+ }),x.env);
+}
+function openingRow({centro='C200',almacen='A001',sap_code='SAP-10002',serial='',
+ quantity=1,lot='VALORADO',reception_state='NUEVO',notes=''}={}){
+ return {centro,almacen,sap_code,serial,quantity,lot,reception_state,notes};
+}
+function openingPayload(rows,operation_id=randomUUID()){return {operation_id,rows};}
+test('Apertura única: estado libre, acceso protegido y vista previa sin modificar Maestras',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x),db=x.database;
+ const data=openingPayload([
+  openingRow({sap_code:f.sapSerial,serial:'AP-001'}),
+  openingRow({sap_code:f.sapBulk,quantity:12,lot:'NOVALORADO',reception_state:'REMANUFACTURADO'})
+ ]);
+ assert.equal((await openingApi(x,'','/estado')).status,401);
+ assert.equal((await openingApi(x,cookie,'/validar','GET')).status,405);
+ assert.equal((await openingApi(x,cookie,'/confirmar','POST',data,'https://externo.example')).status,403);
+ const state=await (await openingApi(x,cookie,'/estado')).json();
+ assert.equal(state.available,true);assert.equal(state.completed,false);
+ const before={wh:db.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,
+  sap:db.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n};
+ const response=await openingApi(x,cookie,'/validar','POST',data);
+ assert.equal(response.status,200);
+ const preview=await response.json();
+ assert.equal(preview.valid,true,JSON.stringify(preview));
+ assert.deepEqual(preview.totals,{lines:2,units:13,warehouses:1,serialized:1});
+ assert.equal(preview.groups[0].items[0].serial,'AP-001');
+ assert.equal(preview.groups[0].items[1].quantity,12);
+ for(const table of ['ingress_documents','ingress_items','inventory_movements',
+   'inventory_serials','opening_stock_once'])
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0,table);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n,before.wh);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,before.sap);
+});
+test('Apertura única: confirma, abastece inventario, permite despachar y bloquea segunda carga',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ const request=openingPayload([
+  openingRow({sap_code:f.sapSerial,serial:'AP-001'}),
+  openingRow({sap_code:f.sapBulk,quantity:12,lot:'NOVALORADO',reception_state:'REMANUFACTURADO'})
+ ]);
+ const out=await openingApi(x,cookie,'/confirmar','POST',request);
+ assert.equal(out.status,200,await out.clone().text());
+ const result=await out.json();
+ assert.equal(result.completed,true);
+ assert.equal(result.documents.length,1);
+ assert.equal(result.totals.units,13);
+ const doc=db.prepare('SELECT * FROM ingress_documents').get();
+ assert.equal(doc.document_type,'SALDO_INICIAL');
+ assert.equal(doc.source_id,doc.destination_id);
+ assert.equal(doc.status,'REGISTRADO');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
+ const serial=db.prepare("SELECT lot,reception_state,physical_state,status FROM inventory_serials WHERE serial='AP-001'").get();
+ assert.deepEqual(serial,{lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',status:'DISPONIBLE'});
+ assert.equal(db.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,12);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+ const state=(await (await openingApi(x,cookie,'/estado')).json());
+ assert.equal(state.completed,true);assert.equal(state.available,false);
+ const catalog=(await (await dispatchApi(x,cookie,'/catalogos')).json());
+ assert.equal(catalog.serials.some(r=>r.serial==='AP-001'),true);
+ assert.equal(catalog.bulk.find(r=>r.sap_code===f.sapBulk).quantity,12);
+ const replay=await openingApi(x,cookie,'/confirmar','POST',request);
+ assert.equal(replay.status,200);
+ assert.equal((await replay.json()).replayed,true);
+ assert.equal((await openingApi(x,cookie,'/confirmar','POST',openingPayload([openingRow()]))).status,409);
+ assert.equal((await openingApi(x,cookie,'/validar','POST',openingPayload([openingRow()]))).status,409);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM ingress_documents').get().n,1);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM opening_stock_once').get().n,1);
+ // Despachar lo abierto a un técnico con el flujo normal.
+ const dispatch=await newDispatch(x,cookie);
+ const payload={technician_id:f.tech,warehouse_id:f.destination,dispatch_date:'2026-11-11',notes:'',
+  items:[{sap_code:f.sapSerial,serial:'AP-001',quantity:1,notes:''},
+   {sap_code:f.sapBulk,serial:'',quantity:3,notes:''}]};
+ assert.equal((await dispatchApi(x,cookie,'/'+dispatch,'PATCH',payload)).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+dispatch+'/confirmar','POST')).status,200);
+ assert.equal(db.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,9);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM dispatch_serial_assignments').get().n,1);
+});
+test('Apertura única: serial repetido, lote inválido, SAP desconocido y bodega ajena bloquean todo',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x),db=x.database;
+ const request=openingPayload([
+  openingRow({sap_code:f.sapSerial,serial:'AP-001'}),
+  openingRow({sap_code:f.sapSerial,serial:'ap-001'}),
+  openingRow({sap_code:f.sapBulk,lot:'INVALIDO',quantity:4}),
+  openingRow({sap_code:'SAP-99999',quantity:2}),
+  openingRow({centro:'C100',sap_code:f.sapBulk,quantity:1}),
+  openingRow({sap_code:f.sapSerial,serial:''})
+ ]);
+ const preview=await (await openingApi(x,cookie,'/validar','POST',request)).json();
+ assert.equal(preview.valid,false);
+ assert.ok(preview.errors.some(x=>x.field==='Serial'&&/repetido/.test(x.message)));
+ assert.ok(preview.errors.some(x=>x.field==='Lote'));
+ assert.ok(preview.errors.some(x=>x.field==='Código SAP'));
+ assert.ok(preview.errors.some(x=>x.field==='Bodega'));
+ const response=await openingApi(x,cookie,'/confirmar','POST',request);
+ assert.equal(response.status,422);
+ for(const table of ['opening_stock_once','opening_stock_documents','ingress_documents',
+  'inventory_movements','inventory_serials','inventory_bulk_stock'])
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM '+table).get().n,0,table);
+});
+test('Apertura única: nunca permite apertura si ya hay Ingresos o Despachos',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const id=await ingNew(x,cookie);
+ const state=await (await openingApi(x,cookie,'/estado')).json();
+ assert.equal(state.available,false);assert.equal(state.blocked,true);
+ assert.equal((await openingApi(x,cookie,'/confirmar','POST',openingPayload([openingRow()]))).status,409);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM opening_stock_once').get().n,0);
+ assert.equal(x.database.prepare('SELECT id FROM ingress_documents WHERE id=?').get(id).id,id);
+});
+test('Apertura única: la importación no cambia validaciones normales de Ingresos',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=ingFixtures(x);
+ const first=openingPayload([openingRow({sap_code:f.sapBulk,quantity:4})]);
+ assert.equal((await openingApi(x,cookie,'/confirmar','POST',first)).status,200);
+ const id=await ingNew(x,cookie);
+ const p=ingPayload(f);
+ p.items[0].serial='POST-AP-001';
+ assert.equal((await ingApi(x,cookie,'/'+id,'PATCH',p)).status,200);
+ assert.equal((await ingApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ assert.equal(x.database.prepare('SELECT COUNT(*) n FROM ingress_documents').get().n,2);
+ assert.equal(x.database.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,9);
+});
+test('Apertura única: UI con Excel, validación, preview, confirmación y cierre irreversible',()=>{
+ const html=fs.readFileSync(new URL('../pages/saldos-iniciales.html',import.meta.url),'utf8');
+ const js=fs.readFileSync(new URL('../pages/saldos-iniciales.js',import.meta.url),'utf8');
+ const original=fs.readFileSync(new URL('../pages/ingresos.html',import.meta.url),'utf8');
+ const ingressJs=fs.readFileSync(new URL('../pages/ingresos.js',import.meta.url),'utf8');
+ assert.match(html,/id="opening-template"/);
+ assert.match(html,/id="opening-file"/);
+ assert.match(html,/id="opening-preview"/);
+ assert.match(html,/id="opening-ack"/);
+ assert.match(html,/id="opening-confirm"/);
+ assert.match(html,/id="opening-complete"/);
+ assert.match(js,/PULSO_Plantilla_Saldos_Iniciales_Unica_Vez.xlsx/);
+ assert.match(js,/api\('\/validar'/);
+ assert.match(js,/api\('\/confirmar'/);
+ assert.match(js,/operation_id:crypto.randomUUID\(\)/);
+ assert.match(original,/id="ingress-opening-link" hidden/);
+ assert.match(ingressJs,/ingress-opening-link'\)\.hidden=!state.available/);
 });

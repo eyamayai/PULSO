@@ -2,7 +2,7 @@
 (() => {
   const $=id=>document.getElementById(id);
   // Los tipos anteriores se conservan únicamente para visualizar el historial.
-  const DOC_TYPES={NUMERO_PEDIDO:'Número de Pedido',ORDEN_COMPRA:'Orden de compra',FACTURA:'Factura',REMISION:'Remisión',ACTA_ENTREGA:'Acta de entrega',OTRO:'Otro'};
+  const DOC_TYPES={SALDO_INICIAL:'Saldo inicial',NUMERO_PEDIDO:'Número de Pedido',ORDEN_COMPRA:'Orden de compra',FACTURA:'Factura',REMISION:'Remisión',ACTA_ENTREGA:'Acta de entrega',OTRO:'Otro'};
   let catalog=[],warehouse=[],bySap=new Map(),byWarehouse=new Map(),list=[];
   let id='',status='BORRADOR',step=1,items=[],support={size:0,filename:''},validation=null,dirty=false,busy=false;
   let editingIndex=null,editingDraft=null,editingNew=false;
@@ -80,6 +80,14 @@
       warehouse=catalogData.warehouses||[];
       refreshCatalogOptions();
       renderList();
+      // La puerta temporal desaparece definitivamente después de registrar la apertura.
+      try{
+        const response=await fetch('/api/saldos-iniciales/estado',{credentials:'same-origin',cache:'no-store'});
+        if(response.ok){
+          const state=await response.json();
+          $('ingress-opening-link').hidden=!state.available;
+        }
+      }catch{}
     }catch(err){text('ingress-list-count',err.message);}
   }
   function renderList(){
@@ -98,7 +106,7 @@
       };
       add(record.reference||'Borrador',record.received_date||record.created_at?.slice(0,10)||'');
       add(record.document_number||'Sin número',DOC_TYPES[record.document_type]||'Pendiente');
-      add(record.source_description||'Pendiente');
+      add(record.document_type==='SALDO_INICIAL'?'Inventario de apertura':record.source_description||'Pendiente');
       add(record.destination_description||'Pendiente');
       add(record.item_count||0);add(record.total_units||0);
       const state=elt('td');

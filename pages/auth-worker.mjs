@@ -1660,6 +1660,225 @@ async function dispatchMassHandler(request,env,user,path){
  }
  return dispatchMassExisting(env.DB,operationId,hash,user.id);
 }
+
+/* Importación de saldos iniciales de única ejecución.
+ * La apertura produce Ingresos identificables como SALDO_INICIAL y deja intactas Maestras.
+ * Nunca habilita una segunda apertura, ni siquiera después de nuevos despliegues. */
+async function openingState(db){
+ const [opened,ing,des,serial,bulk,moves,dispatchMoves]=await Promise.all([
+  db.prepare("SELECT key,operation_id,content_sha,completed_at,document_count,item_count,total_units FROM opening_stock_once WHERE key='APERTURA-2026-11-11'").first(),
+  db.prepare("SELECT count(*) AS n FROM ingress_documents").first(),
+  db.prepare("SELECT count(*) AS n FROM dispatch_documents").first(),
+  db.prepare("SELECT count(*) AS n FROM inventory_serials").first(),
+  db.prepare("SELECT count(*) AS n FROM inventory_bulk_stock WHERE quantity>0").first(),
+  db.prepare("SELECT count(*) AS n FROM inventory_movements").first(),
+  db.prepare("SELECT count(*) AS n FROM dispatch_movements").first()
+ ]);
+ const operational=Number(ing?.n||0)+Number(des?.n||0)+Number(serial?.n||0)+
+  Number(bulk?.n||0)+Number(moves?.n||0)+Number(dispatchMoves?.n||0);
+ return {completed:!!opened,available:!opened&&operational===0,
+  blocked:!opened&&operational>0,record:opened?{
+   completed_at:opened.completed_at,
+   documents:opened.document_count,items:opened.item_count,units:opened.total_units
+  }:null};
+}
+function openingNormalize(input){
+ const errors=[],valid=[],serials=new Set();
+ const fail=(row,field,message)=>{if(errors.length<90)errors.push({row,field,message});};
+ if(!input||!fieldsOf(input,['operation_id','rows'])||
+   !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(input.operation_id||''))||
+   !Array.isArray(input.rows)||input.rows.length<1||input.rows.length>2500)
+  return {errors:[{row:0,field:'Archivo',message:'La plantilla admite entre 1 y 2500 filas por apertura.'}],rows:[]};
+ const keys=['centro','almacen','sap_code','serial','quantity','lot','reception_state','notes'];
+ for(let i=0;i<input.rows.length;i++){
+  const raw=input.rows[i],line=i+2;
+  if(!fieldsOf(raw,keys)){fail(line,'Columnas','Campos no reconocidos. Usa la plantilla de saldos iniciales.');continue;}
+  const source={};
+  for(const key of keys){
+   if(typeof raw[key]==='object'&&raw[key]!==null){fail(line,key,'No se permiten valores complejos.');continue;}
+   source[key]=String(raw[key]??'').trim();
+  }
+  if(keys.some(key=>source[key]===undefined))continue;
+  const row={line,
+   centro:source.centro.toUpperCase(),almacen:source.almacen.toUpperCase(),
+   sap_code:source.sap_code.toUpperCase(),serial:source.serial.toUpperCase(),
+   quantity:Number(raw.quantity),
+   lot:source.lot.toUpperCase(),reception_state:source.reception_state.toUpperCase(),
+   notes:source.notes
+  };
+  if(!row.centro||!row.almacen||row.centro.length>30||row.almacen.length>30){
+   fail(line,'Bodega','Centro y Almacén son obligatorios y no pueden superar 30 caracteres.');
+  }
+  if(!row.sap_code||row.sap_code.length>50)fail(line,'Código SAP','Debe indicar el código SAP existente en Maestras.');
+  if(row.serial.length>100)fail(line,'Serial','Máximo 100 caracteres.');
+  if(!Number.isInteger(row.quantity)||row.quantity<1||row.quantity>1000000)
+   fail(line,'Cantidad','La cantidad debe ser un entero de 1 a 1.000.000.');
+  if(row.serial&&row.quantity!==1)fail(line,'Cantidad','Un serial corresponde a una sola unidad.');
+  if(!['VALORADO','NOVALORADO'].includes(row.lot))
+   fail(line,'Lote','Solo VALORADO o NOVALORADO.');
+  if(!['NUEVO','REMANUFACTURADO'].includes(row.reception_state))
+   fail(line,'Estado de recepción','Solo NUEVO o REMANUFACTURADO.');
+  if(row.notes.length>240)fail(line,'Observaciones','Máximo 240 caracteres.');
+  if(row.serial){
+   if(serials.has(row.serial))fail(line,'Serial','El serial está repetido en el archivo.');
+   serials.add(row.serial);
+  }
+  valid.push(row);
+ }
+ return {errors,rows:valid,serials:[...serials]};
+}
+async function openingPrepare(db,input){
+ const normalized=openingNormalize(input);
+ const errors=[...normalized.errors],rows=normalized.rows;
+ const add=(row,field,message)=>{if(errors.length<90)errors.push({row,field,message});};
+ const groups=new Map(),existingSerials=[];
+ if(!rows.length)return {valid:false,errors,groups:[],totals:{lines:0,units:0,warehouses:0}};
+ const [warehouseResults,sapResults,serialResult]=await Promise.all([
+  db.prepare("SELECT id,centro,almacen,description FROM master_logistics_locations WHERE is_active=1 AND administration='PROPIA'").all(),
+  db.prepare("SELECT sap_code,description,serial_profile FROM master_sap_catalog WHERE is_active=1 AND sap_code IN (SELECT value FROM json_each(?))")
+   .bind(JSON.stringify([...new Set(rows.map(r=>r.sap_code))])).all(),
+  normalized.serials.length?
+   db.prepare("SELECT serial FROM inventory_serials WHERE serial COLLATE NOCASE IN (SELECT value FROM json_each(?))").bind(JSON.stringify(normalized.serials)).all():
+   Promise.resolve({results:[]})
+ ]);
+ const whs=new Map((warehouseResults.results||[]).map(w=>[(w.centro+'|'+w.almacen).toUpperCase(),w]));
+ const saps=new Map((sapResults.results||[]).map(s=>[s.sap_code,s]));
+ for(const r of serialResult.results||[])existingSerials.push(String(r.serial).toUpperCase());
+ const existing=new Set(existingSerials);
+ for(const row of rows){
+  const wh=whs.get(row.centro+'|'+row.almacen),sap=saps.get(row.sap_code);
+  if(!wh)add(row.line,'Bodega','No existe una bodega propia activa con ese Centro y Almacén.');
+  if(!sap)add(row.line,'Código SAP','El SAP no existe o está inactivo en Equipos y materiales.');
+  if(sap?.serial_profile==='CON PERFIL DE SERIE'&&!row.serial)
+   add(row.line,'Serial','Este SAP requiere serial; cada unidad debe tener su propia fila.');
+  if(row.serial&&existing.has(row.serial))
+   add(row.line,'Serial','Este serial ya existe en el inventario.');
+  if(!wh||!sap)continue;
+  if(!groups.has(wh.id))groups.set(wh.id,{warehouse_id:wh.id,
+   warehouse_label:wh.centro+' / '+wh.almacen+' · '+wh.description,
+   centro:wh.centro,almacen:wh.almacen,items:[],units:0});
+  const group=groups.get(wh.id);
+  group.items.push({...row,sap_description:sap.description});
+  group.units+=Number.isFinite(row.quantity)?row.quantity:0;
+ }
+ if(groups.size>150)add(0,'Bodegas','Máximo 150 bodegas en una misma apertura.');
+ const totals={lines:rows.length,units:rows.reduce((x,r)=>x+(Number.isFinite(r.quantity)?r.quantity:0),0),
+  warehouses:groups.size,serialized:rows.filter(r=>!!r.serial).length};
+ return {valid:errors.length===0,errors,groups:[...groups.values()],totals};
+}
+async function openingExisting(db,input,user){
+ const row=await db.prepare("SELECT * FROM opening_stock_once WHERE key='APERTURA-2026-11-11'").first();
+ if(!row)return null;
+ const canonical=JSON.stringify(input.rows||[]);
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical));
+ const hash=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
+ if(row.operation_id!==input.operation_id||row.content_sha!==hash||row.actor_id!==user.id)
+  return ingBad('APERTURA_YA_REALIZADA',409,{completed_at:row.completed_at});
+ const docs=await db.prepare(
+  "SELECT d.id,d.reference,d.document_number,d.destination_id,w.description AS warehouse_name "+
+  "FROM opening_stock_documents o JOIN ingress_documents d ON d.id=o.ingress_id "+
+  "JOIN master_logistics_locations w ON w.id=d.destination_id WHERE o.key=? ORDER BY w.description"
+ ).bind('APERTURA-2026-11-11').all();
+ return json({ok:true,completed:true,replayed:true,documents:docs.results||[],totals:{
+  warehouses:row.document_count,lines:row.item_count,units:row.total_units},completed_at:row.completed_at});
+}
+async function openingHandler(request,env,user,path){
+ if(!user)return ingBad('NO_AUTENTICADO',401);
+ if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
+ const db=env.DB,method=request.method;
+ if(path==='/api/saldos-iniciales/estado'){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  return json({ok:true,...await openingState(db)});
+ }
+ if(path==='/api/saldos-iniciales/catalogos'){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  const [wh,sap]=await Promise.all([
+   db.prepare("SELECT centro,almacen,description FROM master_logistics_locations WHERE is_active=1 AND administration='PROPIA' ORDER BY centro,almacen").all(),
+   db.prepare("SELECT sap_code,description,serial_profile FROM master_sap_catalog WHERE is_active=1 ORDER BY sap_code LIMIT 5000").all()
+  ]);
+  return json({ok:true,warehouses:wh.results||[],catalog:sap.results||[]});
+ }
+ const isPreview=path==='/api/saldos-iniciales/validar';
+ const isCommit=path==='/api/saldos-iniciales/confirmar';
+ if(!isPreview&&!isCommit)return ingBad('RUTA_NO_DISPONIBLE',404);
+ if(method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+ const parsed=await ingBody(request,1250000);
+ if(parsed.error)return ingBad(parsed.error,parsed.status);
+ const input=parsed.data;
+ if(!Array.isArray(input.rows))return ingBad('ARCHIVO_INVALIDO',400);
+ if(isCommit){
+  const replay=await openingExisting(db,input,user);
+  if(replay)return replay;
+ }
+ const state=await openingState(db);
+ if(!state.available)return ingBad(state.completed?'APERTURA_YA_REALIZADA':'APERTURA_REQUIERE_INVENTARIO_VACIO',409);
+ const prepared=await openingPrepare(db,input);
+ if(!isCommit)return json({ok:true,...prepared});
+ if(!prepared.valid)return ingBad('APERTURA_INVALIDA',422,{validation:{
+  valid:false,errors:prepared.errors,totals:prepared.totals}});
+ const canonical=JSON.stringify(input.rows);
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical));
+ const contentSha=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
+ const documents=prepared.groups.map(g=>{
+  const id=crypto.randomUUID();
+  return {id,warehouse_id:g.warehouse_id,
+   document_number:'APERTURA-20261111-'+g.centro+'-'+g.almacen,
+   items:g.items};
+ });
+ const bulkItems=documents.flatMap(d=>d.items.map((it,position)=>({
+  id:crypto.randomUUID(),ingress_id:d.id,position:position+1,
+  sap_code:it.sap_code,serial:it.serial,quantity:it.quantity,lot:it.lot,
+  reception_state:it.reception_state,physical_state:'BUENO',availability_state:'DISPONIBLE',notes:it.notes
+ })));
+ const docJson=JSON.stringify(documents.map(({items,...rest})=>rest));
+ const itemsJson=JSON.stringify(bulkItems);
+ const statements=[
+  db.prepare(
+   "INSERT INTO opening_stock_once(key,operation_id,content_sha,actor_id,document_count,item_count,total_units) "+
+   "SELECT 'APERTURA-2026-11-11',?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM ingress_documents) "+
+   "AND NOT EXISTS(SELECT 1 FROM dispatch_documents) "+
+   "AND NOT EXISTS(SELECT 1 FROM inventory_serials) "+
+   "AND NOT EXISTS(SELECT 1 FROM inventory_bulk_stock WHERE quantity>0) "+
+   "AND NOT EXISTS(SELECT 1 FROM inventory_movements) "+
+   "AND NOT EXISTS(SELECT 1 FROM dispatch_movements)"
+  ).bind(input.operation_id,contentSha,user.id,documents.length,bulkItems.length,prepared.totals.units),
+  db.prepare(
+   "INSERT INTO ingress_documents(id,document_type,document_number,document_date,received_date,source_id,destination_id,notes,created_by,updated_by) "+
+   "SELECT json_extract(value,'$.id'),'SALDO_INICIAL',json_extract(value,'$.document_number'),"+
+   "'2026-11-11','2026-11-11',json_extract(value,'$.warehouse_id'),json_extract(value,'$.warehouse_id'),"+
+   "'Saldo inicial de inventario · carga única 2026-11-11',?,? FROM json_each(?)"
+  ).bind(user.id,user.id,docJson),
+  db.prepare(
+   "INSERT INTO ingress_items(id,ingress_id,position,sap_code,serial,quantity,lot,reception_state,physical_state,availability_state,notes) "+
+   "SELECT json_extract(value,'$.id'),json_extract(value,'$.ingress_id'),json_extract(value,'$.position'),"+
+   "json_extract(value,'$.sap_code'),json_extract(value,'$.serial'),json_extract(value,'$.quantity'),"+
+   "json_extract(value,'$.lot'),json_extract(value,'$.reception_state'),'BUENO','DISPONIBLE',json_extract(value,'$.notes') "+
+   "FROM json_each(?)"
+  ).bind(itemsJson)
+ ];
+ for(const doc of documents)
+  statements.push(db.prepare(
+   "UPDATE ingress_documents SET status='REGISTRADO',reference=?,registered_by=?,registered_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP "+
+   "WHERE id=? AND status='BORRADOR'"
+  ).bind('ING-20261111-'+doc.id.slice(0,8).toUpperCase(),user.id,doc.id));
+ statements.push(db.prepare(
+  "INSERT INTO ingress_audit(id,ingress_id,actor_id,action,details) "+
+  "SELECT lower(hex(randomblob(16))),json_extract(value,'$.id'),?,'REGISTRAR',? FROM json_each(?)"
+ ).bind(user.id,JSON.stringify({source:'SALDO_INICIAL',date:'2026-11-11'}),docJson));
+ statements.push(db.prepare(
+  "INSERT INTO opening_stock_documents(key,ingress_id) "+
+  "SELECT 'APERTURA-2026-11-11',json_extract(value,'$.id') FROM json_each(?) "+
+  "WHERE EXISTS(SELECT 1 FROM opening_stock_once WHERE key='APERTURA-2026-11-11')"
+ ).bind(docJson));
+ try{await db.batch(statements);}
+ catch{
+  const replay=await openingExisting(db,input,user);
+  if(replay)return replay;
+  return ingBad('APERTURA_NO_CONFIRMADA',409);
+ }
+ return openingExisting(db,input,user);
+}
+
 async function dispatchHandler(request,env,user,path){
  if(!user)return ingBad('NO_AUTENTICADO',401);
  if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
@@ -1850,11 +2069,20 @@ export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     try {
-      if (pathname.startsWith('/api/despachos') || pathname === '/despachos' || pathname === '/despachos.html' || pathname.startsWith('/api/ingresos') || pathname === '/ingresos' || pathname === '/ingresos.html' || pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
+      if (pathname.startsWith('/api/saldos-iniciales') || pathname === '/saldos-iniciales' || pathname === '/saldos-iniciales.html' || pathname.startsWith('/api/despachos') || pathname === '/despachos' || pathname === '/despachos.html' || pathname.startsWith('/api/ingresos') || pathname === '/ingresos' || pathname === '/ingresos.html' || pathname.startsWith('/api/auth/') || pathname.startsWith('/api/usuarios') || pathname.startsWith('/api/maestras/') || pathname === '/maestras' || pathname === '/maestras.html' || pathname === '/activar' || pathname === '/activar.html' || pathname === '/inicio' || pathname === '/inicio.html' || pathname === '/main' || pathname === '/main.html') {
         if (!env.DB) return json({ok: false, error: 'SERVICIO_NO_CONFIGURADO'}, 503);
         if (pathname === '/api/auth/health' && request.method === 'GET') {
           await env.DB.prepare('SELECT id FROM app_users LIMIT 1').first();
           return json({ok: true, service: 'pulso-auth', ready: true});
+        }
+        if(pathname.startsWith('/api/saldos-iniciales'))
+          return await openingHandler(request,env,await currentUser(request,env),pathname);
+        if(pathname==='/saldos-iniciales'||pathname==='/saldos-iniciales.html'){
+          if(request.method!=='GET'&&request.method!=='HEAD')return ingBad('METODO_NO_PERMITIDO',405);
+          const person=await currentUser(request,env);
+          if(!person)return go('/main');
+          if(person.role!=='ADMIN')return go('/inicio');
+          return securePage(await env.ASSETS.fetch(request));
         }
         if(pathname.startsWith('/api/despachos'))
           return await dispatchHandler(request,env,await currentUser(request,env),pathname);

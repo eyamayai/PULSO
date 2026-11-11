@@ -281,3 +281,8 @@
   .ingress-row-actions{gap:6px}
   .ingress-row-button{padding:8px 9px}
 }
+
+/* Botón temporal de apertura: visible solo mientras no se registren existencias. */
+.ingress-action-cluster{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px}
+.ingress-action-cluster .income-button[hidden]{display:none!important}
+@media(max-width:760px){.ingress-action-cluster{justify-content:flex-start}}
