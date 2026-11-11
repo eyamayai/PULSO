@@ -67,10 +67,22 @@
    if(v.result!==undefined)return String(v.result).trim();
    return '';
   }
-  if(typeof v==='number'&&[0,1,2,4,5].includes(index)){
-   // No aceptar identificaciones, SAP ni seriales numéricos sin formato texto:
-   // Excel puede haber eliminado ceros iniciales o alterado seriales largos.
-   throw Error('La fila '+cell.row+': la identificación, el SAP y el serial deben almacenarse como TEXTO en Excel.');
+  if(typeof v==='number'){
+   // Dar formato Texto a una celda YA diligenciada no cambia su tipo interno.
+   // ExcelJS sigue entregando como número las identificaciones habituales.
+   if(index===0||index===4){
+    if(!Number.isSafeInteger(v)||v<=0||String(v).includes('e'))
+     throw Error('La fila '+cell.row+': la identificación o el SAP excede la precisión de Excel. Cópialo como texto desde el origen.');
+    return String(v);
+   }
+   if(index===3){
+    // En algunas versiones ExcelJS conserva las fechas como serie numérica.
+    if(!Number.isFinite(v)||v<36526||v>73415)
+     throw Error('La fila '+cell.row+': fecha no válida. Usa una fecha real de Excel o AAAA-MM-DD.');
+    return new Date(Date.UTC(1899,11,30)+Math.floor(v)*86400000).toISOString().slice(0,10);
+   }
+   if(index===1||index===2||index===5)
+    throw Error('La fila '+cell.row+': el Centro, Almacén o Serial está guardado como número. Debe conservarse como texto para no perder ceros iniciales.');
   }
   return String(v).trim();
  }

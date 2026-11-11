@@ -1865,3 +1865,21 @@ test('Apertura única: UI con Excel, validación, preview, confirmación y cierr
  assert.match(original,/id="ingress-opening-link" hidden/);
  assert.match(ingressJs,/ingress-opening-link'\)\.hidden=!state.available/);
 });
+
+
+test('Despachos masivos: acepta identificaciones numéricas de Excel con precisión segura sin alterar seriales',()=>{
+ const js=fs.readFileSync(new URL('../pages/despachos-masivo.js',import.meta.url),'utf8');
+ const parser=js.match(/function cellText\(cell,index\)\{[\s\S]*?\n \}\n async function parseExcel\(file\)/);
+ assert.ok(parser,'El lector de Excel debe existir');
+ const cellText=new Function('return ('+parser[0].replace(/\n async function parseExcel\(file\)$/,'').trim()+')')();
+ // Excel guarda estos valores como números aunque tengan formato visual Texto (@).
+ assert.equal(cellText({value:1234567890,row:2,numFmt:'@'},0),'1234567890');
+ assert.equal(cellText({value:1053481,row:2,numFmt:'@'},4),'1053481');
+ assert.equal(cellText({value:'1053481-RIO-0001',row:2,numFmt:'@'},5),'1053481-RIO-0001');
+ assert.equal(cellText({value:46325,row:2,numFmt:'dd/mm/yyyy'},3),'2026-10-30');
+ assert.equal(cellText({value:new Date('2026-10-30T00:00:00.000Z'),row:2},3),'2026-10-30');
+ assert.equal(cellText({value:1,row:2},6),'1');
+ assert.throws(()=>cellText({value:12345678901234568,row:2},0),/precisión de Excel/);
+ assert.throws(()=>cellText({value:1234,row:2},5),/Serial está guardado como número/);
+ assert.throws(()=>cellText({value:123,row:2},2),/Almacén o Serial/);
+});
