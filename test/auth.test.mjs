@@ -20,6 +20,7 @@ const sql14=fs.readFileSync(new URL('../cloudflare/migrations/0014_despachos_tec
 const sql15=fs.readFileSync(new URL('../cloudflare/migrations/0015_despachos_masivos.sql',import.meta.url),'utf8');
 const sql16=fs.readFileSync(new URL('../cloudflare/migrations/0016_reinicio_operativo_20261111.sql',import.meta.url),'utf8');
 const sql17=fs.readFileSync(new URL('../cloudflare/migrations/0017_apertura_saldos_iniciales.sql',import.meta.url),'utf8');
+const sql18=fs.readFileSync(new URL('../cloudflare/migrations/0018_correccion_sap_serial_4060070_val_0023.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
   const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);database.exec(sql15);database.exec(sql17);}
@@ -1882,4 +1883,90 @@ test('Despachos masivos: acepta identificaciones numéricas de Excel con precisi
  assert.throws(()=>cellText({value:12345678901234568,row:2},0),/precisión de Excel/);
  assert.throws(()=>cellText({value:1234,row:2},5),/Serial está guardado como número/);
  assert.throws(()=>cellText({value:123,row:2},2),/Almacén o Serial/);
+});
+
+
+function prepareCorrectionFixture(x){
+ const db=x.database,actor=db.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ const warehouse=randomUUID();
+ db.prepare("INSERT INTO master_logistics_locations(id,centro,almacen,description,administration,department,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)")
+  .run(warehouse,'C901','A221','DOMINION SAI','PROPIA','CESAR',1,actor,actor);
+ for(const [code,description] of [['1053481','FUENTE POE DC 15W 30V ENERGY LVL6 CBNW'],['4060070','FUENTE 100-240 48V 1.4_1.5A PWR PLUG']]){
+  db.prepare("INSERT INTO master_sap_catalog(id,sap_code,description,item_type,serial_profile,unit,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?)")
+   .run(randomUUID(),code,description,'EQUIPO','CON PERFIL DE SERIE','UND',1,actor,actor);
+ }
+ return {warehouse};
+}
+async function registerCorrectionCase(x,cookie,f){
+ const input=openingPayload([
+  openingRow({centro:'C901',almacen:'A221',sap_code:'1053481',serial:'4060070-VAL-0023',quantity:1,lot:'NOVALORADO',reception_state:'REMANUFACTURADO'}),
+  openingRow({centro:'C901',almacen:'A221',sap_code:f.sapBulk,quantity:2,lot:'VALORADO',reception_state:'NUEVO'})
+ ]);
+ const response=await openingApi(x,cookie,'/confirmar','POST',input);
+ assert.equal(response.status,200,await response.clone().text());
+ return response.json();
+}
+test('Corrección puntual del serial: actualiza SAP en ingreso, inventario e historial sin alterar otras existencias',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ const correction=prepareCorrectionFixture(x);
+ const opened=await registerCorrectionCase(x,cookie,f);
+ assert.equal(opened.totals.units,3);
+ const initial= db.prepare("SELECT s.sap_code,i.sap_code AS item_sap,m.sap_code AS movement_sap,w.centro,w.almacen FROM inventory_serials s JOIN ingress_items i ON i.id=s.ingress_item_id JOIN inventory_movements m ON m.ingress_item_id=i.id JOIN master_logistics_locations w ON w.id=s.warehouse_id WHERE s.serial=?").get('4060070-VAL-0023');
+ assert.equal(initial.sap_code,'1053481');
+ assert.equal(initial.item_sap,'1053481');
+ assert.equal(initial.movement_sap,'1053481');
+ const masters={
+  people:db.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,
+  saps:db.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,
+  locations:db.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n
+ };
+ const existing={
+  serials:db.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,
+  stock:db.prepare('SELECT quantity FROM inventory_bulk_stock WHERE warehouse_id=? AND sap_code=?').get(correction.warehouse,f.sapBulk).quantity,
+  movements:db.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n
+ };
+ db.exec(sql18);
+ const corrected= db.prepare("SELECT s.sap_code,i.sap_code AS item_sap,m.sap_code AS movement_sap,s.serial,s.warehouse_id,i.lot,i.reception_state,s.physical_state FROM inventory_serials s JOIN ingress_items i ON i.id=s.ingress_item_id JOIN inventory_movements m ON m.ingress_item_id=i.id WHERE s.serial=?").get('4060070-VAL-0023');
+ assert.deepEqual([corrected.sap_code,corrected.item_sap,corrected.movement_sap],['4060070','4060070','4060070']);
+ assert.equal(corrected.serial,'4060070-VAL-0023');
+ assert.equal(corrected.warehouse_id,correction.warehouse);
+ assert.deepEqual([corrected.lot,corrected.reception_state,corrected.physical_state],['NOVALORADO','REMANUFACTURADO','BUENO']);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,existing.serials);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,existing.movements);
+ assert.equal(db.prepare('SELECT quantity FROM inventory_bulk_stock WHERE warehouse_id=? AND sap_code=?').get(correction.warehouse,f.sapBulk).quantity,existing.stock);
+ assert.deepEqual([db.prepare('SELECT COUNT(*) n FROM master_personnel').get().n,db.prepare('SELECT COUNT(*) n FROM master_sap_catalog').get().n,db.prepare('SELECT COUNT(*) n FROM master_logistics_locations').get().n],[masters.people,masters.saps,masters.locations]);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_sap_correction_log WHERE completed_at IS NOT NULL').get().n,1);
+ assert.throws(()=>db.prepare("UPDATE ingress_items SET sap_code='1053481' WHERE serial='4060070-VAL-0023'").run(),/INGRESO_INMUTABLE/);
+ db.exec(sql18);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_sap_correction_log').get().n,1);
+ const preview=await dispatchApi(x,cookie,'/masivo/validar','POST',massPayload([
+  massRow({technician:'77001122',centro:'C901',almacen:'A221',sap:'4060070',serial:'4060070-VAL-0023',quantity:1})
+ ]));
+ assert.equal(preview.status,200);
+ assert.equal((await preview.json()).valid,true);
+});
+test('Corrección puntual se detiene sin cambios si el serial no coincide en bodega',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ prepareCorrectionFixture(x);
+ const input=openingPayload([
+  openingRow({centro:'C200',almacen:'A001',sap_code:'1053481',serial:'4060070-VAL-0023'})
+ ]);
+ assert.equal((await openingApi(x,cookie,'/confirmar','POST',input)).status,200);
+ assert.throws(()=>db.exec(sql18),/CHECK constraint failed/);
+ assert.equal(db.prepare("SELECT sap_code FROM inventory_serials WHERE serial=?").get('4060070-VAL-0023').sap_code,'1053481');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_sap_correction_log').get().n,0);
+ assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='ingress_items_registered_update'").get());
+});
+test('Corrección puntual no edita seriales que ya están asignados a técnicos',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ const location=prepareCorrectionFixture(x);
+ await registerCorrectionCase(x,cookie,f);
+ const id=await newDispatch(x,cookie);
+ const p={technician_id:f.tech,warehouse_id:location.warehouse,dispatch_date:'2026-11-11',notes:'',
+  items:[{sap_code:'1053481',serial:'4060070-VAL-0023',quantity:1,notes:''}]};
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',p)).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ assert.throws(()=>db.exec(sql18),/CHECK constraint failed/);
+ assert.equal(db.prepare("SELECT sap_code FROM inventory_serials WHERE serial=?").get('4060070-VAL-0023').sap_code,'1053481');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_sap_correction_log').get().n,0);
 });

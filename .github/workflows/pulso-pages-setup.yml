@@ -22,6 +22,7 @@ on:
       - 'cloudflare/migrations/0015_despachos_masivos.sql'
       - 'cloudflare/migrations/0016_reinicio_operativo_20261111.sql'
       - 'cloudflare/migrations/0017_apertura_saldos_iniciales.sql'
+      - 'cloudflare/migrations/0018_correccion_sap_serial_4060070_val_0023.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -62,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/saldos-iniciales.html pages/saldos-iniciales.css pages/saldos-iniciales.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql cloudflare/migrations/0015_despachos_masivos.sql cloudflare/migrations/0016_reinicio_operativo_20261111.sql cloudflare/migrations/0017_apertura_saldos_iniciales.sql pages/saldos-iniciales.html pages/saldos-iniciales.js pages/saldos-iniciales.css; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/saldos-iniciales.html pages/saldos-iniciales.css pages/saldos-iniciales.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql cloudflare/migrations/0015_despachos_masivos.sql cloudflare/migrations/0016_reinicio_operativo_20261111.sql cloudflare/migrations/0017_apertura_saldos_iniciales.sql cloudflare/migrations/0018_correccion_sap_serial_4060070_val_0023.sql pages/saldos-iniciales.html pages/saldos-iniciales.js pages/saldos-iniciales.css; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -242,6 +243,31 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/pulso-reinicio-backup-temporal.sql"
+
+      - name: Corregir SAP de un único serial registrado sin alterar existencias
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Export privado sólo en la primera ejecución de la corrección.
+          PREV=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT 'SAP_FIX_YA_REGISTRADO' AS estado FROM inventory_sap_correction_log WHERE correction_key='CORRECCION-SAP-4060070-VAL-0023-20261111' AND completed_at IS NOT NULL" 2>/dev/null || true)
+          if ! printf '%s' "$PREV" | grep -q 'SAP_FIX_YA_REGISTRADO'; then
+            npx --yes wrangler@4.157.0 d1 export DB --remote --config "$PULSO_AUTH_WRANGLER" --output "$RUNNER_TEMP/pulso-respaldo-correccion-sap.sql"
+            test -s "$RUNNER_TEMP/pulso-respaldo-correccion-sap.sql"
+            chmod 600 "$RUNNER_TEMP/pulso-respaldo-correccion-sap.sql"
+            echo 'Copia privada temporal realizada antes de corregir el SAP.'
+          fi
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0018_correccion_sap_serial_4060070_val_0023.sql
+          CHECK=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT 'SAP_CORRECCION_VERIFICADA' AS estado FROM inventory_sap_correction_log c JOIN ingress_items i ON i.id=c.ingress_item_id JOIN inventory_serials s ON s.ingress_item_id=c.ingress_item_id JOIN inventory_movements m ON m.ingress_item_id=c.ingress_item_id JOIN master_logistics_locations w ON w.id=c.warehouse_id WHERE c.correction_key='CORRECCION-SAP-4060070-VAL-0023-20261111' AND c.completed_at IS NOT NULL AND s.serial='4060070-VAL-0023' COLLATE NOCASE AND i.sap_code='4060070' AND s.sap_code='4060070' AND m.sap_code='4060070' AND w.centro='C901' AND w.almacen='A221'")
+          if ! printf '%s' "$CHECK" | grep -q 'SAP_CORRECCION_VERIFICADA'; then
+            echo 'No se pudo verificar la corrección completa en inventario; detener despliegue.' >&2
+            exit 1
+          fi
+          echo 'SAP de serial corregido y coherencia de tres tablas comprobada.'
+
+      - name: Descartar respaldo temporal de corrección de SAP
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/pulso-respaldo-correccion-sap.sql"
 
       - name: Preparar administrador inicial si fue autorizado
         env:
