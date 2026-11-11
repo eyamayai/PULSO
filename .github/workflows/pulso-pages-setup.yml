@@ -34,9 +34,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Grupo renovado por bloqueo de una ejecución ya completada en GitHub Actions.
+  # Nueva ejecución tras recuperarse el servicio GitHub Actions; evita compartir cola con los intentos retenidos.
   # Conservar la exclusión mutua y evitar anular despliegues que aplican migraciones D1.
-  group: pulso-pages-main-recovery-20261111
+  group: pulso-pages-main-recovery-20261111-v2
   cancel-in-progress: false
 
 jobs:
