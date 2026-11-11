@@ -20,6 +20,7 @@ on:
       - 'cloudflare/migrations/0013_valor_unitario_catalogo.sql'
       - 'cloudflare/migrations/0014_despachos_tecnicos.sql'
       - 'cloudflare/migrations/0015_despachos_masivos.sql'
+      - 'cloudflare/migrations/0016_reinicio_operativo_20261111.sql'
       - 'test/auth.test.mjs'
       - '.github/scripts/prepare-cloudflare-auth.mjs'
       - '.github/scripts/bootstrap-admin.mjs'
@@ -60,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql cloudflare/migrations/0015_despachos_masivos.sql; do
+          for file in pages/index.html pages/main.html pages/inicio.html pages/pulso.css pages/pulso-icon.svg pages/logo-original.webp pages/logo-original-encuadrado.webp pages/icono-original.webp pages/acceso.css pages/acceso-login.js pages/inicio-session.js pages/inicio-ui.js pages/maestras.html pages/maestras.css pages/maestras.js pages/maestras-import.js pages/usuarios.js pages/personal-access.js pages/bodegas.js pages/ingresos.html pages/ingresos.css pages/ingresos.js pages/despachos.html pages/despachos.css pages/despachos.js pages/despachos-masivo.js pages/activar.html pages/activar.js pages/activar.css pages/auth-worker.mjs pages/_headers cloudflare/migrations/0002_autenticacion.sql cloudflare/migrations/0003_auth_passwords_compat.sql cloudflare/migrations/0004_maestras_personal_y_sap.sql cloudflare/migrations/0005_usuarios_permisos.sql cloudflare/migrations/0006_vinculo_personal_usuarios.sql cloudflare/migrations/0007_bodegas_aliados.sql cloudflare/migrations/0008_departamentos_aliados.sql cloudflare/migrations/0009_ingresos.sql cloudflare/migrations/0010_seriales_internos_ingresos.sql cloudflare/migrations/0011_clasificacion_estados_ingresos.sql cloudflare/migrations/0012_validacion_clasificacion_ingresos.sql cloudflare/migrations/0013_valor_unitario_catalogo.sql cloudflare/migrations/0014_despachos_tecnicos.sql cloudflare/migrations/0015_despachos_masivos.sql cloudflare/migrations/0016_reinicio_operativo_20261111.sql; do
             test -s "$file"
           done
           grep -q 'logo-original-encuadrado.webp' pages/main.html
@@ -202,6 +203,39 @@ jobs:
           fi
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0014_despachos_tecnicos.sql
           npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0015_despachos_masivos.sql
+
+      # Respaldo TEMPORAL de D1, no se publica como artifact porque el repositorio
+      # es público y el respaldo incluiría cuentas, contraseñas cifradas y Maestras.
+      - name: Respaldo temporal privado antes del reinicio operativo
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXISTING=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT completed_at FROM pulso_operational_reset_events WHERE reset_key='REINICIO-INGRESOS-DESPACHOS-2026-11-11'" 2>/dev/null || true)
+          if printf '%s' "$EXISTING" | grep -q '2026-'; then
+            echo 'Reinicio anterior identificado: no se vuelve a copiar ni a borrar información nueva.'
+          else
+            npx --yes wrangler@4.157.0 d1 export DB --remote --config "$PULSO_AUTH_WRANGLER" --output "$RUNNER_TEMP/pulso-reinicio-backup-temporal.sql"
+            test -s "$RUNNER_TEMP/pulso-reinicio-backup-temporal.sql"
+            chmod 600 "$RUNNER_TEMP/pulso-reinicio-backup-temporal.sql"
+            echo 'Copia temporal preparada en el runner privado. No se subirá a GitHub.'
+          fi
+
+      - name: Reiniciar datos de Ingresos y Despachos una única vez
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --file cloudflare/migrations/0016_reinicio_operativo_20261111.sql
+          RESULT=$(npx --yes wrangler@4.157.0 d1 execute DB --remote --config "$PULSO_AUTH_WRANGLER" --command "SELECT CASE WHEN completed_at IS NOT NULL AND master_personnel_before=master_personnel_after AND master_sap_catalog_before=master_sap_catalog_after AND master_locations_before=master_locations_after AND app_users_before=app_users_after AND (SELECT operational_rows_remaining FROM pulso_operational_reset_checks WHERE reset_key='REINICIO-INGRESOS-DESPACHOS-2026-11-11')=0 THEN 'PULSO_RESET_VERIFICADO' ELSE 'REINICIO_INCOMPLETO' END AS resultado FROM pulso_operational_reset_events WHERE reset_key='REINICIO-INGRESOS-DESPACHOS-2026-11-11'")
+          if ! printf '%s' "$RESULT" | grep -q 'PULSO_RESET_VERIFICADO'; then
+            echo 'Reinicio no verificado; no continuar despliegue.' >&2
+            exit 1
+          fi
+          echo 'Reinicio operativo verificado y Maestras preservadas.'
+
+      - name: Eliminar copia temporal de seguridad
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/pulso-reinicio-backup-temporal.sql"
 
       - name: Preparar administrador inicial si fue autorizado
         env:

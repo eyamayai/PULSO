@@ -18,6 +18,7 @@ const sql12=fs.readFileSync(new URL('../cloudflare/migrations/0012_validacion_cl
 const sql13=fs.readFileSync(new URL('../cloudflare/migrations/0013_valor_unitario_catalogo.sql',import.meta.url),'utf8');
 const sql14=fs.readFileSync(new URL('../cloudflare/migrations/0014_despachos_tecnicos.sql',import.meta.url),'utf8');
 const sql15=fs.readFileSync(new URL('../cloudflare/migrations/0015_despachos_masivos.sql',import.meta.url),'utf8');
+const sql16=fs.readFileSync(new URL('../cloudflare/migrations/0016_reinicio_operativo_20261111.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
   const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);database.exec(sql15);}
@@ -1658,4 +1659,63 @@ test('Despachos masivos: pantalla, plantilla, vista previa, confirmación y lect
  assert.match(js,/operation_id:crypto.randomUUID\(\)/);
  assert.match(js,/renderGroups\(data.groups\|\|\[\]\)/);
  assert.match(css,/\.dispatch-mass-tools/);
+});
+
+
+test('Reinicio 2026-11-11: borra Ingresos y Despachos completos y conserva cada Maestra',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ const actor=db.prepare("SELECT id FROM app_users WHERE email='admin@example.com'").get().id;
+ const ingressId=await fillIngressForDispatch(x,cookie,f);
+ const draftIngress=await ingNew(x,cookie);
+ const dispatchId=await newDispatch(x,cookie);
+ assert.equal((await dispatchApi(x,cookie,'/'+dispatchId,'PATCH',dispatchPayload(f))).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+dispatchId+'/confirmar','POST')).status,200);
+ const draftDispatch=await newDispatch(x,cookie);
+ // Agregar lote masivo confirmado para comprobar sus tablas dependientes.
+ const mass=massPayload([massRow({technician:'77001133',sap:f.sapBulk,quantity:1})]);
+ assert.equal((await dispatchApi(x,cookie,'/masivo/confirmar','POST',mass)).status,200);
+ const tables=['master_personnel','master_sap_catalog','master_logistics_locations','app_users'];
+ const before=Object.fromEntries(tables.map(table=>[table,db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n]));
+ assert.ok(before.master_personnel>0);
+ assert.ok(before.master_sap_catalog>0);
+ assert.ok(before.master_logistics_locations>0);
+ assert.equal(before.app_users,1);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ingress_documents').get().n,2);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_documents').get().n,3);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM inventory_movements').get().n,2);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_movements').get().n,3);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_mass_batches').get().n,1);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_serial_assignments').get().n,1);
+ assert.ok(db.prepare('SELECT COUNT(*) AS n FROM inventory_bulk_stock').get().n>0);
+ // Conservar respaldo temporal es tarea del workflow; la migración NO exporta información.
+ db.exec(sql16);
+ const cleared=['ingress_documents','ingress_items','ingress_audit','ingress_support_chunks',
+  'inventory_serials','inventory_movements','inventory_bulk_stock',
+  'dispatch_documents','dispatch_items','dispatch_audit','dispatch_movements',
+  'dispatch_serial_assignments','dispatch_mass_batches','dispatch_mass_batch_documents'];
+ for(const table of cleared)assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0,table);
+ for(const table of tables)
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,before[table],'Se conservó '+table);
+ assert.ok(db.prepare("SELECT id FROM master_personnel WHERE id=?").get(f.tech));
+ assert.ok(db.prepare("SELECT id FROM master_logistics_locations WHERE id=?").get(f.destination));
+ assert.ok(db.prepare("SELECT id FROM master_sap_catalog WHERE sap_code=?").get(f.sapSerial));
+ const check=db.prepare("SELECT * FROM pulso_operational_reset_events WHERE reset_key='REINICIO-INGRESOS-DESPACHOS-2026-11-11'").get();
+ assert.ok(check.completed_at);
+ assert.equal(check.master_personnel_after,check.master_personnel_before);
+ assert.equal(check.master_sap_catalog_after,check.master_sap_catalog_before);
+ assert.equal(check.master_locations_after,check.master_locations_before);
+ assert.equal(check.app_users_after,check.app_users_before);
+ assert.equal(db.prepare("SELECT operational_rows_remaining AS n FROM pulso_operational_reset_checks").get().n,0);
+ const triggerNames=['dispatch_document_delete_guard','dispatch_items_delete_guard',
+  'ingress_items_registered_delete','ingress_support_registered_delete'];
+ for(const name of triggerNames)
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?").get(name),'Recuperado '+name);
+ // Reejecutar la migración NO debe borrar datos generados luego del reinicio.
+ const laterIngress=await ingNew(x,cookie),laterDispatch=await newDispatch(x,cookie);
+ assert.ok(db.prepare('SELECT id FROM ingress_documents WHERE id=?').get(laterIngress));
+ assert.ok(db.prepare('SELECT id FROM dispatch_documents WHERE id=?').get(laterDispatch));
+ db.exec(sql16);
+ assert.ok(db.prepare('SELECT id FROM ingress_documents WHERE id=?').get(laterIngress));
+ assert.ok(db.prepare('SELECT id FROM dispatch_documents WHERE id=?').get(laterDispatch));
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM pulso_operational_reset_events').get().n,1);
 });
