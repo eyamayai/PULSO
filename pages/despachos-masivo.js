@@ -41,7 +41,7 @@
  function reset(){
   payload=null;preview=null;confirmed=false;busy=false;
   $('dispatch-mass-file').value='';
-  $('dispatch-mass-file-name').textContent='Ningún archivo seleccionado · Máximo 500 filas y 100 despachos por carga.';
+  $('dispatch-mass-file-name').textContent='Ningún archivo seleccionado · Máximo 500 filas y 500 despachos por carga.';
   $('dispatch-mass-preview').hidden=true;
   $('dispatch-mass-success').hidden=true;
   $('dispatch-mass-ack').checked=false;
@@ -284,7 +284,7 @@
     ['Observaciones','Opcional, máximo 240 caracteres por fila.'],
     ['Agrupación','Cada combinación de técnico, bodega y fecha crea UN despacho.'],
     ['Confirmación','Se confirma el archivo completo o se rechaza sin registrar nada.'],
-    ['Límite','Máximo 500 filas / 100 despachos por Excel.']
+    ['Límite','Máximo 500 filas / 500 despachos por Excel.']
    ];
    for(const [a,b] of lines){const row=guide.addRow([a,b]);row.getCell(1).font={bold:true,color:{argb:'FF075A47'}};row.height=24;}
    const data=await book.xlsx.writeBuffer();

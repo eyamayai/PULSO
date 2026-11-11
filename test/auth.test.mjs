@@ -1970,3 +1970,66 @@ test('Corrección puntual no edita seriales que ya están asignados a técnicos'
  assert.equal(db.prepare("SELECT sap_code FROM inventory_serials WHERE serial=?").get('4060070-VAL-0023').sap_code,'1053481');
  assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_sap_correction_log').get().n,0);
 });
+
+
+test('Despachos masivos: 306 despachos distintos en una sola carga sin exceder las consultas de D1',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ db.prepare("UPDATE inventory_bulk_stock SET quantity=420 WHERE warehouse_id=? AND sap_code=?").run(f.destination,f.sapBulk);
+ const rows=Array.from({length:306},(_,i)=>massRow({
+  technician:'77001122',sap:f.sapBulk,quantity:1,
+  date:new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10)
+ }));
+ const request=massPayload(rows);
+ const pre=await dispatchApi(x,cookie,'/masivo/validar','POST',request);
+ assert.equal(pre.status,200);
+ const parsed=await pre.json();
+ assert.equal(parsed.valid,true,JSON.stringify(parsed.errors));
+ assert.equal(parsed.totals.dispatches,306);
+ assert.equal(parsed.totals.lines,306);
+ const confirm=await dispatchApi(x,cookie,'/masivo/confirmar','POST',request);
+ assert.equal(confirm.status,200,await confirm.clone().text());
+ const data=await confirm.json();
+ assert.equal(data.dispatches.length,306);
+ assert.deepEqual([data.totals.dispatches,data.totals.lines,data.totals.units],[306,306,306]);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_documents WHERE status='DESPACHADO'").get().n,306);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_movements").get().n,306);
+ assert.equal(db.prepare("SELECT quantity FROM inventory_bulk_stock WHERE warehouse_id=? AND sap_code=?").get(f.destination,f.sapBulk).quantity,114);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_mass_batch_documents").get().n,306);
+ const duplicate=await dispatchApi(x,cookie,'/masivo/confirmar','POST',request);
+ assert.equal(duplicate.status,200);
+ assert.equal((await duplicate.json()).replayed,true);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_movements").get().n,306);
+});
+
+test('Despachos masivos: admite límite máximo de 500 despachos con una sola confirmación atómica',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ db.prepare("UPDATE inventory_bulk_stock SET quantity=510 WHERE warehouse_id=? AND sap_code=?").run(f.destination,f.sapBulk);
+ const input=massPayload(Array.from({length:500},(_,i)=>massRow({
+  technician:'77001122',sap:f.sapBulk,quantity:1,
+  date:new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10)
+ })));
+ const validated=await dispatchApi(x,cookie,'/masivo/validar','POST',input);
+ assert.equal(validated.status,200);
+ const preview=await validated.json();
+ assert.equal(preview.valid,true,JSON.stringify(preview.errors));
+ assert.equal(preview.totals.dispatches,500);
+ const result=await dispatchApi(x,cookie,'/masivo/confirmar','POST',input);
+ assert.equal(result.status,200,await result.clone().text());
+ assert.equal((await result.json()).dispatches.length,500);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_movements").get().n,500);
+ assert.equal(db.prepare("SELECT quantity FROM inventory_bulk_stock WHERE warehouse_id=? AND sap_code=?").get(f.destination,f.sapBulk).quantity,10);
+});
+test('Despachos masivos: mensaje visual y plantilla muestran 500 despachos por archivo',()=>{
+ const html=fs.readFileSync(new URL('../pages/despachos.html',import.meta.url),'utf8');
+ const js=fs.readFileSync(new URL('../pages/despachos-masivo.js',import.meta.url),'utf8');
+ const worker=fs.readFileSync(new URL('../pages/auth-worker.mjs',import.meta.url),'utf8');
+ assert.match(html,/500 filas y 500 despachos por carga/);
+ assert.match(js,/500 filas y 500 despachos por carga/);
+ assert.match(js,/500 filas \/ 500 despachos por Excel/);
+ assert.match(worker,/if\(groups.size>500\)/);
+ assert.doesNotMatch(worker,/if\(groups.size>100\)/);
+ assert.match(worker,/id IN \(SELECT json_extract\(value,'\$\.id'\) FROM json_each\(\?\)\)/);
+ assert.doesNotMatch(worker,/for\(const doc of docs\)\s*statements.push\(env.DB.prepare\(/);
+});

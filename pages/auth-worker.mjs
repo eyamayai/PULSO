@@ -1453,7 +1453,7 @@ async function dispatchValidate(db,doc,items){
 }
 
 /* Despachos masivos: la vista previa no escribe; la confirmación escribe TODOS los
-   despachos y movimientos en una única transacción D1. Límite: 500 filas / 100 despachos. */
+   despachos y movimientos en una única transacción D1. Límite: 500 filas / 500 despachos. */
 async function dispatchMassPrepare(db,input){
  const errors=[],rows=[],groups=new Map(),serialSet=new Set(),bulkTotals=new Map();
  const fail=(row,field,message)=>{if(errors.length<100)errors.push({row,field,message});};
@@ -1551,7 +1551,7 @@ async function dispatchMassPrepare(db,input){
    }
   }
  }
- if(groups.size>100)fail(0,'Despachos','Máximo 100 despachos por archivo; divide la carga en varios archivos.');
+ if(groups.size>500)fail(0,'Despachos','Máximo 500 despachos por archivo.');
  const summaries=[...groups.values()].map(g=>({
   technician_document:g.technician_document,technician_name:g.technician_name,
   warehouse_label:g.warehouse_label,dispatch_date:g.dispatch_date,
@@ -1637,13 +1637,15 @@ async function dispatchMassHandler(request,env,user,path){
    "json_extract(value,'$.notes') FROM json_each(?)"
   ).bind(itemJson)
  ];
- // SQL triggers vuelven a comprobar existencias y seriales DENTRO de la transacción;
- // un problema en cualquier técnico anula todos los despachos del Excel.
- for(const doc of docs)
-  statements.push(env.DB.prepare(
-   "UPDATE dispatch_documents SET status='DESPACHADO',confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,"+
-   "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='BORRADOR'"
-  ).bind(user.id,doc.id));
+ // La confirmación masiva se realiza con UNA consulta SQL, no una por despacho.
+ // Esto mantiene el total de consultas muy por debajo del límite por petición de D1.
+ // Los triggers de inventario siguen verificando CADA despacho fila a fila, dentro
+ // de la misma transacción: cualquier error revierte todos los despachos.
+ statements.push(env.DB.prepare(
+  "UPDATE dispatch_documents SET status='DESPACHADO',confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,"+
+  "updated_at=CURRENT_TIMESTAMP WHERE status='BORRADOR' "+
+  "AND id IN (SELECT json_extract(value,'$.id') FROM json_each(?))"
+ ).bind(user.id,docJson));
  statements.push(env.DB.prepare(
   "INSERT INTO dispatch_audit(id,dispatch_id,actor_id,action,details) "+
   "SELECT lower(hex(randomblob(16))),json_extract(value,'$.id'),?,'DESPACHAR',? FROM json_each(?)"
