@@ -34,7 +34,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: pulso-pages-main
+  # Grupo renovado por bloqueo de una ejecución ya completada en GitHub Actions.
+  # Conservar la exclusión mutua y evitar anular despliegues que aplican migraciones D1.
+  group: pulso-pages-main-recovery-20261111
   cancel-in-progress: false
 
 jobs:
