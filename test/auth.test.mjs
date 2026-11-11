@@ -1778,7 +1778,7 @@ test('Apertura única: confirma, abastece inventario, permite despachar y bloque
  assert.equal(doc.status,'REGISTRADO');
  assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_serials').get().n,1);
  const serial=db.prepare("SELECT lot,reception_state,physical_state,status FROM inventory_serials WHERE serial='AP-001'").get();
- assert.deepEqual(serial,{lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',status:'DISPONIBLE'});
+ assert.deepEqual({...serial},{lot:'VALORADO',reception_state:'NUEVO',physical_state:'BUENO',status:'DISPONIBLE'});
  assert.equal(db.prepare('SELECT quantity FROM inventory_bulk_stock').get().quantity,12);
  assert.equal(db.prepare('SELECT COUNT(*) n FROM inventory_movements').get().n,2);
  const state=(await (await openingApi(x,cookie,'/estado')).json());
