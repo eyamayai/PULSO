@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0c3333"><meta name="robots" content="noindex,nofollow">
+<title>PULSO · Cloudflare | Desarrollo</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#1e3939;background:#f4f8f6;font-size:14px}
+*{box-sizing:border-box}body{margin:0}.app{display:flex;min-height:100vh}
+nav{background:#103735;color:#e3f2ed;width:245px;flex-shrink:0;padding:28px 19px}
+.logo{display:flex;gap:12px;align-items:center;margin-bottom:44px}.mark{display:grid;place-items:center;background:#b6f0d1;color:#10503b;width:43px;height:43px;border-radius:12px;font-size:28px;font-weight:900}
+.logo b{letter-spacing:2px;font-size:24px}.logo small{display:block;font-size:9px;letter-spacing:1.5px;color:#9ec5ba}
+.navlabel{font-size:10px;color:#91b5ac;font-weight:800;letter-spacing:1.4px;margin:20px 10px 10px}
+.navitem{display:block;width:100%;padding:13px 14px;margin:4px 0;border:0;border-radius:10px;background:transparent;color:#bed7d0;text-align:left;font:700 13px system-ui}
+.navitem.active{background:#286257;color:white}.navitem:not(.active){opacity:.55}
+.aside{margin-top:60px;padding:14px;border:1px solid #42685d;border-radius:13px;color:#b5d5c9;font-size:12px;line-height:1.6}
+main{flex:1;min-width:0}header{background:white;border-bottom:1px solid #e1ece8;padding:23px 35px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+header h1{font-size:23px;letter-spacing:-1px;margin:0}header p{font-size:12px;color:#738783;margin:6px 0 0}
+.env{font-weight:800;font-size:11px;color:#886113;background:#fff5dc;border:1px solid #efdba9;border-radius:30px;padding:9px 14px}
+.wrap{max-width:1280px;padding:32px 35px;margin:auto}.hero{border-radius:20px;padding:32px;background:linear-gradient(110deg,#133a39,#167d65);color:white}
+.hero small{font-size:11px;font-weight:900;letter-spacing:2px;color:#b6f0d3}.hero h2{font-size:30px;letter-spacing:-1px;margin:8px 0}.hero p{line-height:1.75;max-width:730px;color:#d4eae2;margin-bottom:0}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin:22px 0 34px}
+.metric,.card{background:white;border:1px solid #deebe6;border-radius:15px;box-shadow:0 4px 16px #164e3e07}
+.metric{padding:20px}.metric small{color:#6c827d;font-weight:700}.metric strong{font-size:25px;display:block;letter-spacing:-1px;margin:8px 0}
+.metric span{font-size:10px;font-weight:800;color:#976a27}
+h3{font-size:19px;letter-spacing:-.5px;margin:0 0 6px}.muted{color:#738783;font-size:12px;line-height:1.65}
+.cards{margin-top:20px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.card{padding:20px;min-height:170px}.icon{font-size:24px;background:#e4f7ef;width:43px;height:43px;display:grid;place-items:center;border-radius:11px;color:#0a8f70}
+.card b{font-size:16px;display:block;margin:14px 0 7px}.card p{color:#728680;font-size:12px;line-height:1.6;margin:0}
+.pill{float:right;color:#996b1c;background:#fff4de;border:1px solid #f4dfad;border-radius:30px;font-weight:800;font-size:10px;padding:6px 10px}
+.warning{margin:25px 0;background:#fff9ed;border:1px solid #efdbb3;padding:19px;border-radius:13px;line-height:1.65;color:#705724}
+footer{padding:12px 0;color:#879a95;font-size:11px}
+@media(max-width:950px){nav{width:205px}.cards{grid-template-columns:repeat(2,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:690px){.app{display:block}nav{width:auto;padding:15px}.logo{margin:0}.navlabel,.navitem,.aside{display:none}header{padding:18px;align-items:flex-start}header h1{font-size:20px}.env{font-size:9px}.wrap{padding:20px 17px}.hero{padding:24px}.hero h2{font-size:25px}.cards{grid-template-columns:1fr}.metric{padding:16px}}
+</style>
+</head>
+<body><div class="app"><nav aria-label="Menú"><div class="logo"><span class="mark">P</span><span><b>PULSO</b><small>LOGÍSTICA O&M</small></span></div>
+<div class="navlabel">ENTORNO DE DESARROLLO</div>
+<button class="navitem active">◫ &nbsp; Resumen</button><button class="navitem" disabled>▤ &nbsp; Maestras</button>
+<button class="navitem" disabled>⇄ &nbsp; Movimientos</button><button class="navitem" disabled>⚑ &nbsp; Alertas</button>
+<button class="navitem" disabled>♙ &nbsp; Usuarios</button>
+<div class="aside"><strong>Entorno aislado</strong><div>No utiliza la base de datos de la versión anterior. Sin movimientos ni importaciones habilitadas.</div></div></nav>
+<main><header><div><h1>Centro de control PULSO</h1><p>Workers + D1 · Infraestructura de pruebas</p></div><span class="env">DESARROLLO · NO PRODUCCIÓN</span></header>
+<div class="wrap"><section class="hero"><small>FASE 1 · ESTRUCTURA INICIAL</small><h2>Control logístico desde cero.</h2>
+<p>Las maestras son la única fuente válida de bodegas, SAP, equipos y personal. Una plantilla operativa no crea entidades ni puede saltarse las validaciones.</p></section>
+<section class="metrics" aria-label="Estado"><div class="metric"><small>Conexión API</small><strong id="api-status">Revisando…</strong><span id="api-detail">Verificando Cloudflare</span></div>
+<div class="metric"><small>Maestras configurables</small><strong>5</strong><span>Sin precarga de registros</span></div>
+<div class="metric"><small>Operaciones autorizadas</small><strong>0</strong><span>Bloqueadas por seguridad</span></div>
+<div class="metric"><small>Acceso de usuarios</small><strong>0</strong><span>Perfiles pendientes</span></div></section>
+<section><h3>Maestras obligatorias</h3><p class="muted">Las pantallas de carga y edición se activarán después de implementar autenticación y permisos por rol. No se cargan datos anteriores.</p>
+<div class="cards">
+<article class="card"><span class="pill">NO ALIMENTADA</span><span class="icon">⌂</span><b>Bodegas</b><p>Identificadas por códigos autorizados y su estado de vigencia.</p></article>
+<article class="card"><span class="pill">NO ALIMENTADA</span><span class="icon">▦</span><b>Materiales SAP</b><p>Registro explícito. Conserva ceros, letras y sufijos de cada código.</p></article>
+<article class="card"><span class="pill">NO ALIMENTADA</span><span class="icon">☷</span><b>Equipos y seriales</b><p>Todo serial debe existir en la maestra y pertenecer a un SAP registrado.</p></article>
+<article class="card"><span class="pill">NO ALIMENTADA</span><span class="icon">♙</span><b>Técnicos</b><p>Identificación única y vínculo opcional con supervisor previamente registrado.</p></article>
+<article class="card"><span class="pill">NO ALIMENTADA</span><span class="icon">♟</span><b>Supervisores</b><p>Personal autorizado, registrado antes de vincularlo a técnicos.</p></article>
+</div></section>
+<section class="warning"><strong>⛔ Política de rechazo total de Excel</strong><div>Si una sola fila tiene bodega, SAP, serial o técnico inexistente o incoherente con las maestras, se rechaza el lote completo y se informa la fila. No se genera ninguna alta automática.</div></section>
+<footer>PULSO · Vista de diseño de pruebas, sin datos reales y sin movimientos habilitados.</footer></div></main></div>
+<script>
+(async()=>{const s=document.getElementById('api-status'),d=document.getElementById('api-detail');
+try{const r=await fetch('/api/health',{cache:'no-store'});if(!r.ok)throw Error();const j=await r.json();if(j.app!=='PULSO'||j.operational_imports_enabled!==false)throw Error();s.textContent='Activo';d.textContent='Worker operativo · Cargues bloqueados';d.style.color='#138668'}
+catch(_){s.textContent='Pendiente';d.textContent='API no disponible'}})();
+</script>
+</body></html>
