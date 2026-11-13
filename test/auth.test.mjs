@@ -21,9 +21,10 @@ const sql15=fs.readFileSync(new URL('../cloudflare/migrations/0015_despachos_mas
 const sql16=fs.readFileSync(new URL('../cloudflare/migrations/0016_reinicio_operativo_20261111.sql',import.meta.url),'utf8');
 const sql17=fs.readFileSync(new URL('../cloudflare/migrations/0017_apertura_saldos_iniciales.sql',import.meta.url),'utf8');
 const sql18=fs.readFileSync(new URL('../cloudflare/migrations/0018_correccion_sap_serial_4060070_val_0023.sql',import.meta.url),'utf8');
+const sql19=fs.readFileSync(new URL('../cloudflare/migrations/0019_consumos_wfm.sql',import.meta.url),'utf8');
 const root='https://pulso-mintic.pages.dev';
 function setup({legacyWarehouse=false}={}) {
-  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);database.exec(sql15);database.exec(sql17);}
+  const database = new DatabaseSync(':memory:'); database.exec(sql); database.exec(sql3); database.exec(sql4); database.exec(sql5); database.exec(sql6); database.exec(sql7); if(!legacyWarehouse){database.exec(sql8);database.exec(sql9);database.exec(sql10);database.exec(sql11);database.exec(sql12);database.exec(sql13);database.exec(sql14);database.exec(sql15);database.exec(sql17);database.exec(sql19);}
   const wrap = stmt => {
     let args=[];
     return {
@@ -2032,4 +2033,146 @@ test('Despachos masivos: mensaje visual y plantilla muestran 500 despachos por a
  assert.doesNotMatch(worker,/if\(groups.size>100\)/);
  assert.match(worker,/id IN \(SELECT json_extract\(value,'\$\.id'\) FROM json_each\(\?\)\)/);
  assert.doesNotMatch(worker,/for\(const doc of docs\)\s*statements.push\(env.DB.prepare\(/);
+});
+
+
+async function conApi(x,cookie,path='',method='GET',data=null,origin=root){
+ return worker.fetch(x.req('/api/consumos'+path,{
+  method,origin,headers:{cookie,...(method!=='GET'?{origin}:{})},
+  ...(data===null?{}:{data})
+ }),x.env);
+}
+function conRow({sap='SAP-10001',tech='77001122',serial='EQ-001',ot='OT5380432',
+ wfm='68294',quantity=1,centro='C200',almacen='A001',profile='CON PERFIL DE SERIE'}={}){
+ return {line:2,technician_document:tech,sap_code:sap,ot,wfm_id:wfm,
+  centro,almacen,quantity,consumption_date:'2026-11-12',
+  reported_serial:profile==='SIN PERFIL DE SERIE'?'':serial,lot:'VALORADO',
+  support:{sap_code:sap,technician_document:tech,ot,wfm_id:wfm,serial,serial_profile:profile}};
+}
+test('Consumos WFM: conciliación exacta con OT, técnico, serial y despacho sin doble descuento',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ const id=await newDispatch(x,cookie),p=dispatchPayload(f);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',p)).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const req={operation_id:randomUUID(),filename:'Informe Reportes WFM R1.xlsx',rows:[conRow()]};
+ assert.equal((await conApi(x,'')).status,401);
+ assert.equal((await conApi(x,cookie,'/validar','GET')).status,405);
+ assert.equal((await conApi(x,cookie,'/confirmar','POST',req,'https://sitio-ajeno.example')).status,403);
+ const preview=await (await conApi(x,cookie,'/validar','POST',req)).json();
+ assert.equal(preview.valid,true,JSON.stringify(preview.errors));
+ assert.equal(preview.totals.recovered,0);
+ assert.deepEqual([preview.totals.lines,preview.totals.technicians,preview.totals.units],[1,1,1]);
+ assert.equal(preview.groups[0].items[0].dispatch_reference.startsWith('DES-'),true);
+ assert.equal(db.prepare("SELECT count(*) n FROM consumption_items").get().n,0);
+ const bulkBefore=db.prepare("SELECT quantity FROM inventory_bulk_stock").get().quantity;
+ const result=await conApi(x,cookie,'/confirmar','POST',req);
+ assert.equal(result.status,200,await result.clone().text());
+ assert.equal((await result.json()).confirmed,true);
+ assert.equal(db.prepare("SELECT count(*) n FROM consumption_items").get().n,1);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_serial_assignments").get().n,1);
+ assert.equal(db.prepare("SELECT quantity FROM inventory_bulk_stock").get().quantity,bulkBefore);
+ const retry=await conApi(x,cookie,'/confirmar','POST',req);
+ assert.equal(retry.status,200);
+ assert.equal((await retry.json()).replayed,true);
+ const second={...req,operation_id:randomUUID()};
+ const duplicate=await (await conApi(x,cookie,'/validar','POST',second)).json();
+ assert.equal(duplicate.valid,false);
+ assert.ok(duplicate.errors.some(e=>e.field==='Duplicado'||e.field==='Serial'));
+ assert.equal((await conApi(x,cookie,'/confirmar','POST',second)).status,422);
+ assert.equal(db.prepare("SELECT count(*) n FROM consumption_items").get().n,1);
+ const history=(await (await conApi(x,cookie)).json());
+ assert.equal(history.summary.reports,1);
+ assert.equal(history.summary.units,1);
+ const detail=await conApi(x,cookie,'/lote/'+req.operation_id);
+ assert.equal(detail.status,200);
+ assert.equal((await detail.json()).items[0].internal_serial,'EQ-001');
+});
+test('Consumos WFM: recupera serial genérico en Sheet1 aunque Claro lo dejó vacío en Sheet2',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ const ingreso=await ingNew(x,cookie),payload=ingPayload(f);
+ payload.items.push({sap_code:f.sapBulk,serial:'GEN-0001',quantity:1,
+  lot:'VALORADO',reception_state:'NUEVO',notes:''});
+ assert.equal((await ingApi(x,cookie,'/'+ingreso,'PATCH',payload)).status,200);
+ assert.equal((await ingApi(x,cookie,'/'+ingreso+'/confirmar','POST')).status,200);
+ const id=await newDispatch(x,cookie);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',{
+  technician_id:f.tech,warehouse_id:f.destination,dispatch_date:'2026-11-11',notes:'',
+  items:[{sap_code:f.sapBulk,serial:'GEN-0001',quantity:1,notes:''}]
+ })).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const row=conRow({sap:f.sapBulk,serial:'GEN-0001',profile:'SIN PERFIL DE SERIE'});
+ assert.equal(row.reported_serial,'');
+ const req={operation_id:randomUUID(),filename:'WFM.xlsx',rows:[row]};
+ const preview=(await (await conApi(x,cookie,'/validar','POST',req)).json());
+ assert.equal(preview.valid,true,JSON.stringify(preview.errors));
+ assert.equal(preview.totals.recovered,1);
+ assert.equal(preview.groups[0].items[0].source,'SERIAL_SHEET1');
+ assert.equal((await conApi(x,cookie,'/confirmar','POST',req)).status,200);
+ const saved=db.prepare("SELECT reported_serial,internal_serial,ot,quantity FROM consumption_items").get();
+ assert.deepEqual([saved.reported_serial,saved.internal_serial,saved.ot,saved.quantity],
+  ['','GEN-0001','OT5380432',1]);
+ assert.equal(db.prepare("SELECT count(*) n FROM dispatch_serial_assignments").get().n,1);
+ assert.equal(db.prepare("SELECT count(*) n FROM inventory_serials").get().n,1);
+});
+test('Consumos WFM: no admite otro técnico, bodega ni serial sin asignación',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
+ await fillIngressForDispatch(x,cookie,f);
+ const id=await newDispatch(x,cookie);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',dispatchPayload(f))).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const rows=[
+  conRow({tech:'77001133'}),
+  conRow({almacen:'A900',ot:'OT5380444'}),
+  conRow({serial:'EQ-FAKE',ot:'OT5380555'})
+ ];
+ for(const row of rows){
+  const req={operation_id:randomUUID(),filename:'WFM.xlsx',rows:[row]};
+  const preview=await (await conApi(x,cookie,'/validar','POST',req)).json();
+  assert.equal(preview.valid,false);
+  assert.equal((await conApi(x,cookie,'/confirmar','POST',req)).status,422);
+ }
+ assert.equal(x.database.prepare("SELECT count(*) n FROM consumption_batches").get().n,0);
+});
+test('Consumos WFM: un error impide registrar incluso las filas válidas del lote',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ const id=await newDispatch(x,cookie);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',dispatchPayload(f))).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const req={operation_id:randomUUID(),filename:'WFM.xlsx',rows:[
+  conRow(),conRow({ot:'OT5380999',wfm:'98989',serial:'EQ-OTHER'})
+ ]};
+ const preview=await (await conApi(x,cookie,'/validar','POST',req)).json();
+ assert.equal(preview.valid,false);
+ assert.equal((await conApi(x,cookie,'/confirmar','POST',req)).status,422);
+ assert.equal(db.prepare("SELECT count(*) n FROM consumption_items").get().n,0);
+ assert.equal(db.prepare("SELECT count(*) n FROM consumption_batches").get().n,0);
+});
+test('Consumos WFM: deduce únicamente el serial del apoyo WFM coincidente',async()=>{
+ const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x),db=x.database;
+ await fillIngressForDispatch(x,cookie,f);
+ const id=await newDispatch(x,cookie);
+ assert.equal((await dispatchApi(x,cookie,'/'+id,'PATCH',dispatchPayload(f))).status,200);
+ assert.equal((await dispatchApi(x,cookie,'/'+id+'/confirmar','POST')).status,200);
+ const row=conRow();
+ row.support.wfm_id='99999';
+ assert.equal((await (await conApi(x,cookie,'/validar','POST',{operation_id:randomUUID(),filename:'WFM.xlsx',rows:[row]})).json()).valid,false);
+ const noClaro=conRow();noClaro.reported_serial='';
+ assert.equal((await (await conApi(x,cookie,'/validar','POST',{operation_id:randomUUID(),filename:'WFM.xlsx',rows:[noClaro]})).json()).valid,false);
+});
+test('Consumos WFM: página y rutas protegidas, sin convertir equipos retirados en consumo',async()=>{
+ const x=setup(),cookie=await adminCookie(x);
+ assert.equal((await worker.fetch(x.req('/consumos'),x.env)).status,302);
+ assert.equal((await worker.fetch(x.req('/consumos',{headers:{cookie}}),x.env)).status,200);
+ const html=fs.readFileSync(new URL('../pages/consumos.html',import.meta.url),'utf8');
+ const js=fs.readFileSync(new URL('../pages/consumos.js',import.meta.url),'utf8');
+ const css=fs.readFileSync(new URL('../pages/consumos.css',import.meta.url),'utf8');
+ assert.match(html,/id="con-preview"/);
+ assert.match(html,/id="con-confirm"/);
+ assert.match(js,/EQUIPOS RETIRADOS/);
+ assert.match(js,/const support=installed\(/);
+ assert.match(js,/operation_id:crypto.randomUUID\(\)/);
+ assert.match(js,/reported_serial:serial/);
+ assert.match(css,/\.con-groups/);
 });

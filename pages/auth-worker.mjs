@@ -1881,6 +1881,261 @@ async function openingHandler(request,env,user,path){
  return openingExisting(db,input,user);
 }
 
+
+/* Claro WFM: el reporte de consumo (Sheet2) es la fuente de OT, técnico y SAP.
+ * Sheet1 aporta exclusivamente el serial interno cuando Claro omite el serial.
+ * Nunca se altera stock de bodega al consumir: se descontó en Despachos. */
+async function consumptionPrepare(db,input){
+ const errors=[],rows=[],duplicateKeys=new Set(),reportSerials=new Set();
+ const add=(row,field,message)=>{if(errors.length<120)errors.push({row,field,message});};
+ const allowed=['line','technician_document','centro','almacen','sap_code','ot','wfm_id',
+  'consumption_date','quantity','reported_serial','support','lot'];
+ if(!input||!fieldsOf(input,['operation_id','filename','rows'])||
+  !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(String(input.operation_id||''))||
+  !Array.isArray(input.rows)||input.rows.length<1||input.rows.length>500)
+  return {valid:false,errors:[{row:0,field:'Archivo',message:'Se requieren entre 1 y 500 consumos y un identificador válido.'}]};
+ for(let index=0;index<input.rows.length;index++){
+  const raw=input.rows[index],line=Number(raw?.line)||index+2;
+  if(!fieldsOf(raw,allowed)){add(line,'Formato','Fila con campos no admitidos.');continue;}
+  const get=(name,max)=>String(raw[name]??'').trim().toUpperCase().slice(0,max);
+  const support=raw.support&&typeof raw.support==='object'&&!Array.isArray(raw.support)?raw.support:null;
+  if(support&&!fieldsOf(support,['sap_code','ot','wfm_id','technician_document','serial','serial_profile'])){
+   add(line,'Sheet1','Datos auxiliares inesperados.');continue;
+  }
+  const row={line,
+   technician_document:get('technician_document',25),centro:get('centro',30),
+   almacen:get('almacen',30),sap_code:get('sap_code',50),ot:get('ot',40),
+   wfm_id:get('wfm_id',40).replace(/^7K/,''),
+   consumption_date:get('consumption_date',10),quantity:Number(raw.quantity),
+   reported_serial:get('reported_serial',100),lot:get('lot',20),
+   support:support?{
+    sap_code:String(support.sap_code??'').trim().toUpperCase(),
+    ot:String(support.ot??'').trim().toUpperCase(),
+    wfm_id:String(support.wfm_id??'').trim().toUpperCase().replace(/^7K/,''),
+    technician_document:String(support.technician_document??'').trim().toUpperCase(),
+    serial:String(support.serial??'').trim().toUpperCase(),
+    serial_profile:String(support.serial_profile??'').trim().toUpperCase()
+   }:null
+  };
+  if(!/^[0-9A-Z-]{4,25}$/.test(row.technician_document))add(line,'Técnico','Identificación inválida.');
+  if(!row.centro||!row.almacen)add(line,'Bodega','Centro y Almacén obligatorios.');
+  if(!row.sap_code)add(line,'SAP','Código SAP vacío.');
+  if(!/^OT[0-9A-Z-]{4,38}$/.test(row.ot))add(line,'OT','Orden de trabajo inválida.');
+  if(!/^[0-9A-Z-]{1,40}$/.test(row.wfm_id))add(line,'ID WFM','Identificador WFM obligatorio.');
+  if(!ingDate(row.consumption_date))add(line,'Fecha','La fecha debe ser AAAA-MM-DD.');
+  if(!Number.isInteger(row.quantity)||row.quantity<1||row.quantity>1000000)
+   add(line,'Cantidad','Debe ser un entero positivo.');
+  if(row.reported_serial&&row.quantity!==1)add(line,'Cantidad','Un serial corresponde a una unidad.');
+  if(row.lot&&!['VALORADO','NOVALORADO'].includes(row.lot))add(line,'Lote','Lote no reconocido.');
+  if(row.support){
+   const sp=row.support;
+   if(sp.sap_code!==row.sap_code||sp.ot!==row.ot||sp.wfm_id!==row.wfm_id||
+      sp.technician_document!==row.technician_document)
+    add(line,'Sheet1','No coincide SAP, OT, técnico o ID WFM entre las dos hojas.');
+   if(row.reported_serial&&sp.serial&&row.reported_serial!==sp.serial)
+    add(line,'Serial','El serial reportado en Sheet2 no coincide con Sheet1.');
+  }
+  row.internal_serial=row.reported_serial||row.support?.serial||'';
+  if(!row.reported_serial&&row.support&&!row.internal_serial)
+   add(line,'Serial','El registro de Sheet1 no aporta serial interno.');
+  if(row.internal_serial&&row.quantity!==1)add(line,'Cantidad','El serial interno requiere cantidad 1.');
+  row.source_key=[
+   row.technician_document,row.ot,row.wfm_id,row.sap_code,row.internal_serial||'SIN_SERIAL'
+  ].join('|');
+  if(duplicateKeys.has(row.source_key))add(line,'Duplicado','El consumo se repite dentro del archivo.');
+  duplicateKeys.add(row.source_key);
+  if(row.internal_serial){
+   if(reportSerials.has(row.internal_serial))add(line,'Serial','El serial está repetido en este reporte.');
+   reportSerials.add(row.internal_serial);
+  }
+  rows.push(row);
+ }
+ if(!rows.length)return {valid:false,errors,groups:[],totals:{lines:0,units:0,technicians:0,ots:0}};
+ const docs=[...new Set(rows.map(x=>x.technician_document))],saps=[...new Set(rows.map(x=>x.sap_code))];
+ const [peopleResult,sapResult,assignedResult,consumedResult]=await Promise.all([
+  db.prepare("SELECT id,document_number,full_name FROM master_personnel WHERE position='TECNICO' AND is_active=1 AND document_number COLLATE NOCASE IN (SELECT value FROM json_each(?))")
+   .bind(JSON.stringify(docs)).all(),
+  db.prepare("SELECT sap_code,description,serial_profile FROM master_sap_catalog WHERE sap_code IN (SELECT value FROM json_each(?))")
+   .bind(JSON.stringify(saps)).all(),
+  db.prepare(
+   "SELECT m.dispatch_item_id,m.dispatch_id,m.technician_id,m.sap_code,m.serial,m.quantity,"+
+   "p.document_number AS technician_document,d.reference AS dispatch_reference,"+
+   "w.centro,w.almacen,IFNULL(a.serial,'') AS assigned_serial "+
+   "FROM dispatch_movements m "+
+   "JOIN dispatch_documents d ON d.id=m.dispatch_id AND d.status='DESPACHADO' "+
+   "JOIN master_personnel p ON p.id=m.technician_id "+
+   "JOIN master_logistics_locations w ON w.id=m.warehouse_id "+
+   "LEFT JOIN dispatch_serial_assignments a ON a.dispatch_item_id=m.dispatch_item_id "+
+   "WHERE p.document_number COLLATE NOCASE IN (SELECT value FROM json_each(?)) "+
+   "AND m.sap_code IN (SELECT value FROM json_each(?)) LIMIT 12000"
+  ).bind(JSON.stringify(docs),JSON.stringify(saps)).all(),
+  db.prepare(
+   "SELECT c.dispatch_item_id,c.quantity,c.internal_serial,c.source_key "+
+   "FROM consumption_items c JOIN master_personnel p ON p.id=c.technician_id "+
+   "WHERE p.document_number COLLATE NOCASE IN (SELECT value FROM json_each(?)) "+
+   "AND c.sap_code IN (SELECT value FROM json_each(?)) LIMIT 12000"
+  ).bind(JSON.stringify(docs),JSON.stringify(saps)).all()
+ ]);
+ const persons=new Map((peopleResult.results||[]).map(p=>[String(p.document_number).toUpperCase(),p]));
+ const catalog=new Map((sapResult.results||[]).map(p=>[String(p.sap_code).toUpperCase(),p]));
+ const assigned=assignedResult.results||[],consumed=consumedResult.results||[];
+ const taken=new Map(),usedKeys=new Set(consumed.map(c=>c.source_key)),usedSerials=new Set();
+ for(const c of consumed){
+  taken.set(c.dispatch_item_id,(taken.get(c.dispatch_item_id)||0)+Number(c.quantity));
+  if(c.internal_serial)usedSerials.add(String(c.internal_serial).toUpperCase());
+ }
+ const pending=new Map(),groups=new Map();
+ for(const row of rows){
+  const person=persons.get(row.technician_document),sap=catalog.get(row.sap_code);
+  if(!person)add(row.line,'Técnico','El técnico no está activo en Maestras.');
+  if(!sap)add(row.line,'SAP','El SAP no está registrado en Maestras.');
+  if(sap?.serial_profile==='CON PERFIL DE SERIE'&&!row.reported_serial)
+   add(row.line,'Serial','Claro debe reportar serial para equipos CON PERFIL DE SERIE.');
+  if(sap?.serial_profile==='SIN PERFIL DE SERIE'&&!row.reported_serial&&row.support&&
+     row.support.serial_profile&&row.support.serial_profile!=='SIN PERFIL DE SERIE')
+   add(row.line,'Perfil','Sheet1 no coincide con el perfil SIN PERFIL DE SERIE de la maestra.');
+  if(usedKeys.has(row.source_key))add(row.line,'Duplicado','Esta OT / SAP / ID WFM ya fue consumida.');
+  if(row.internal_serial&&usedSerials.has(row.internal_serial))
+   add(row.line,'Serial','Este serial interno ya fue consumido anteriormente.');
+  const candidates=assigned.filter(m=>
+   String(m.technician_document).toUpperCase()===row.technician_document &&
+   String(m.sap_code).toUpperCase()===row.sap_code &&
+   String(m.centro).toUpperCase()===row.centro && String(m.almacen).toUpperCase()===row.almacen &&
+   String(m.serial||'').toUpperCase()===row.internal_serial
+  );
+  if(candidates.length!==1){
+   add(row.line,'Despacho',candidates.length?
+    'Existen asignaciones ambiguas del SAP para este técnico y bodega.':
+    'No existe equipo disponible asignado a este técnico con ese SAP, serial y bodega.');
+   continue;
+  }
+  const match=candidates[0];
+  if(row.internal_serial&&!match.assigned_serial)
+   add(row.line,'Serial','El serial no figura como asignado al técnico.');
+  const used=(taken.get(match.dispatch_item_id)||0)+(pending.get(match.dispatch_item_id)||0);
+  if(Number(match.quantity)-used<row.quantity)
+   add(row.line,'Cantidad','Se intenta consumir más unidades de las asignadas y pendientes.');
+  pending.set(match.dispatch_item_id,(pending.get(match.dispatch_item_id)||0)+row.quantity);
+  const enriched={...row,technician_id:person?.id||'',technician_name:person?.full_name||'',
+   sap_description:sap?.description||'',dispatch_item_id:match.dispatch_item_id,
+   dispatch_reference:match.dispatch_reference,
+   source:row.reported_serial?'SERIAL_CLARO':row.internal_serial?'SERIAL_SHEET1':'SIN_SERIAL'};
+  const gkey=row.technician_document;
+  if(!groups.has(gkey))groups.set(gkey,{technician_name:enriched.technician_name,
+   technician_document:gkey,items:[],units:0});
+  groups.get(gkey).items.push(enriched);groups.get(gkey).units+=row.quantity;
+ }
+ const totals={lines:rows.length,units:rows.reduce((sum,x)=>sum+(Number.isInteger(x.quantity)?x.quantity:0),0),
+  technicians:groups.size,ots:new Set(rows.map(x=>x.ot)).size,
+  recovered:rows.filter(r=>!r.reported_serial&&r.internal_serial).length};
+ return {valid:errors.length===0,errors,groups:[...groups.values()],totals,
+  items:[...groups.values()].flatMap(g=>g.items)};
+}
+async function consumptionExisting(db,input,actor){
+ const result=await db.prepare("SELECT * FROM consumption_batches WHERE operation_id=?").bind(input.operation_id).first();
+ if(!result)return null;
+ const contentHash=await hash(JSON.stringify(input.rows));
+ if(contentHash!==result.content_sha||actor.id!==result.actor_id)
+  return ingBad('LOTE_CONSUMOS_YA_UTILIZADO',409);
+ const rows=await db.prepare(
+  "SELECT c.ot,c.wfm_id,c.sap_code,c.internal_serial,c.reported_serial,c.quantity,c.consumo_fecha,"+
+  "p.full_name AS technician_name,p.document_number AS technician_document "+
+  "FROM consumption_items c JOIN master_personnel p ON p.id=c.technician_id "+
+  "WHERE c.batch_id=? ORDER BY c.source_row"
+ ).bind(result.id).all();
+ return json({ok:true,confirmed:true,replayed:true,items:rows.results||[],
+  totals:{lines:(rows.results||[]).length,
+   units:(rows.results||[]).reduce((sum,r)=>sum+Number(r.quantity),0)}});
+}
+async function consumptionHandler(request,env,user,path){
+ if(!user)return ingBad('NO_AUTENTICADO',401);
+ if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
+ const db=env.DB,method=request.method;
+ if(path==='/api/consumos'){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  const [batches,summary]=await Promise.all([
+   db.prepare(
+    "SELECT b.id,b.source_filename,b.created_at,COUNT(c.id) AS lines,"+
+    "COALESCE(SUM(c.quantity),0) AS units,COUNT(DISTINCT c.technician_id) AS technicians "+
+    "FROM consumption_batches b LEFT JOIN consumption_items c ON c.batch_id=b.id "+
+    "GROUP BY b.id ORDER BY b.created_at DESC LIMIT 100"
+   ).all(),
+   db.prepare(
+    "SELECT (SELECT COUNT(*) FROM consumption_items) AS lines,"+
+    "(SELECT COALESCE(SUM(quantity),0) FROM consumption_items) AS units,"+
+    "(SELECT COUNT(DISTINCT technician_id) FROM consumption_items) AS technicians,"+
+    "(SELECT COUNT(*) FROM consumption_batches) AS reports"
+   ).first()
+  ]);
+  return json({ok:true,items:batches.results||[],summary});
+ }
+ if(path.startsWith('/api/consumos/lote/')){
+  if(method!=='GET')return ingBad('METODO_NO_PERMITIDO',405);
+  const id=path.split('/').pop();
+  if(!/^[0-9a-f-]{36}$/i.test(id))return ingBad('LOTE_NO_ENCONTRADO',404);
+  const header=await db.prepare("SELECT * FROM consumption_batches WHERE id=?").bind(id).first();
+  if(!header)return ingBad('LOTE_NO_ENCONTRADO',404);
+  const rows=await db.prepare(
+   "SELECT c.ot,c.wfm_id,c.sap_code,s.description AS sap_description,c.internal_serial,"+
+   "c.reported_serial,c.quantity,c.consumo_fecha,c.centro,c.almacen,p.full_name AS technician_name,"+
+   "p.document_number AS technician_document,d.reference AS dispatch_reference "+
+   "FROM consumption_items c JOIN master_personnel p ON p.id=c.technician_id "+
+   "JOIN master_sap_catalog s ON s.sap_code=c.sap_code "+
+   "JOIN dispatch_items i ON i.id=c.dispatch_item_id JOIN dispatch_documents d ON d.id=i.dispatch_id "+
+   "WHERE c.batch_id=? ORDER BY c.source_row"
+  ).bind(id).all();
+  return json({ok:true,header,items:rows.results||[]});
+ }
+ const preview=path==='/api/consumos/validar',commit=path==='/api/consumos/confirmar';
+ if(!preview&&!commit)return ingBad('RUTA_NO_DISPONIBLE',404);
+ if(method!=='POST')return ingBad('METODO_NO_PERMITIDO',405);
+ const parsed=await ingBody(request,1400000);
+ if(parsed.error)return ingBad(parsed.error,parsed.status);
+ const input=parsed.data;
+ if(!Array.isArray(input?.rows)||!input.rows.length||input.rows.length>500)
+  return ingBad('ARCHIVO_INVALIDO',400);
+ if(commit){
+  const previous=await consumptionExisting(db,input,user);
+  if(previous)return previous;
+ }
+ const checked=await consumptionPrepare(db,input);
+ if(!preview&&!checked.valid)
+  return ingBad('CONSUMOS_INVALIDOS',422,{validation:{
+   valid:false,errors:checked.errors,totals:checked.totals,groups:checked.groups}});
+ if(preview)return json({ok:true,...checked,items:undefined});
+ const id=input.operation_id,contentHash=await hash(JSON.stringify(input.rows));
+ const jsonRows=JSON.stringify(checked.items.map(it=>({
+  id:crypto.randomUUID(),batch_id:id,dispatch_item_id:it.dispatch_item_id,technician_id:it.technician_id,
+  sap_code:it.sap_code,ot:it.ot,wfm_id:it.wfm_id,centro:it.centro,almacen:it.almacen,
+  consumo_fecha:it.consumption_date,quantity:it.quantity,reported_serial:it.reported_serial,
+  internal_serial:it.internal_serial,source_key:it.source_key,lot:it.lot,source_row:it.line
+ })));
+ try{
+  await db.batch([
+   db.prepare(
+    "INSERT INTO consumption_batches(id,operation_id,content_sha,source_filename,actor_id) VALUES(?,?,?,?,?)"
+   ).bind(id,id,contentHash,String(input.filename||'Reporte WFM').slice(0,150),user.id),
+   db.prepare(
+    "INSERT INTO consumption_items(id,batch_id,dispatch_item_id,technician_id,sap_code,ot,wfm_id,centro,almacen,"+
+    "consumo_fecha,quantity,reported_serial,internal_serial,source_key,lot,source_row) "+
+    "SELECT json_extract(value,'$.id'),json_extract(value,'$.batch_id'),"+
+    "json_extract(value,'$.dispatch_item_id'),json_extract(value,'$.technician_id'),"+
+    "json_extract(value,'$.sap_code'),json_extract(value,'$.ot'),json_extract(value,'$.wfm_id'),"+
+    "json_extract(value,'$.centro'),json_extract(value,'$.almacen'),"+
+    "json_extract(value,'$.consumo_fecha'),json_extract(value,'$.quantity'),"+
+    "json_extract(value,'$.reported_serial'),json_extract(value,'$.internal_serial'),"+
+    "json_extract(value,'$.source_key'),json_extract(value,'$.lot'),"+
+    "json_extract(value,'$.source_row') FROM json_each(?)"
+   ).bind(jsonRows)
+  ]);
+ }catch{
+  const prior=await consumptionExisting(db,input,user);
+  if(prior)return prior;
+  return ingBad('CONSUMOS_CAMBIARON_REVALIDAR',409);
+ }
+ return consumptionExisting(db,input,user);
+}
+
 async function dispatchHandler(request,env,user,path){
  if(!user)return ingBad('NO_AUTENTICADO',401);
  if(user.role!=='ADMIN')return ingBad('SIN_PERMISOS',403);
@@ -1933,11 +2188,14 @@ async function dispatchHandler(request,env,user,path){
   const [technicians,equipment]=await Promise.all([
    db.prepare(
     "SELECT m.technician_id,p.full_name AS technician_name,p.document_number AS technician_document,"+
-    "COUNT(DISTINCT m.dispatch_id) AS dispatch_count,COALESCE(SUM(m.quantity),0) AS assigned_units,"+
+    "COUNT(DISTINCT m.dispatch_id) AS dispatch_count,"+
+    "COALESCE(SUM(m.quantity-COALESCE((SELECT SUM(c.quantity) FROM consumption_items c WHERE c.dispatch_item_id=m.dispatch_item_id),0)),0) AS assigned_units,"+
     "MAX(d.dispatch_date) AS last_dispatch "+
     "FROM dispatch_movements m JOIN dispatch_documents d ON d.id=m.dispatch_id "+
     "JOIN master_personnel p ON p.id=m.technician_id "+
-    "WHERE d.status='DESPACHADO' AND (trim(m.serial)='' OR EXISTS("+
+    "WHERE d.status='DESPACHADO' "+
+    "AND m.quantity>COALESCE((SELECT SUM(c.quantity) FROM consumption_items c WHERE c.dispatch_item_id=m.dispatch_item_id),0) "+
+    "AND (trim(m.serial)='' OR EXISTS("+
     "SELECT 1 FROM dispatch_serial_assignments a WHERE a.dispatch_item_id=m.dispatch_item_id)) "+
     "GROUP BY m.technician_id,p.full_name,p.document_number "+
     "ORDER BY assigned_units DESC,p.full_name COLLATE NOCASE LIMIT 2500"
@@ -1945,13 +2203,16 @@ async function dispatchHandler(request,env,user,path){
    db.prepare(
     "SELECT m.dispatch_id,d.reference,d.dispatch_date,m.technician_id,"+
     "p.full_name AS technician_name,p.document_number AS technician_document,"+
-    "m.sap_code,s.description AS sap_description,m.serial,m.quantity,"+
+    "m.sap_code,s.description AS sap_description,m.serial,"+
+    "(m.quantity-COALESCE((SELECT SUM(c.quantity) FROM consumption_items c WHERE c.dispatch_item_id=m.dispatch_item_id),0)) AS quantity,"+
     "w.description AS warehouse_name "+
     "FROM dispatch_movements m JOIN dispatch_documents d ON d.id=m.dispatch_id "+
     "JOIN master_personnel p ON p.id=m.technician_id "+
     "LEFT JOIN master_sap_catalog s ON s.sap_code=m.sap_code "+
     "LEFT JOIN master_logistics_locations w ON w.id=m.warehouse_id "+
-    "WHERE d.status='DESPACHADO' AND (trim(m.serial)='' OR EXISTS("+
+    "WHERE d.status='DESPACHADO' "+
+    "AND m.quantity>COALESCE((SELECT SUM(c.quantity) FROM consumption_items c WHERE c.dispatch_item_id=m.dispatch_item_id),0) "+
+    "AND (trim(m.serial)='' OR EXISTS("+
     "SELECT 1 FROM dispatch_serial_assignments a WHERE a.dispatch_item_id=m.dispatch_item_id)) "+
     "ORDER BY d.dispatch_date DESC,m.created_at DESC,m.id DESC LIMIT 2500"
    ).all()
@@ -1973,9 +2234,9 @@ async function dispatchHandler(request,env,user,path){
     ).all(),
     db.prepare("SELECT count(*) AS n FROM inventory_serials s LEFT JOIN dispatch_serial_assignments a ON a.serial=s.serial COLLATE NOCASE WHERE s.status='DISPONIBLE' AND a.serial IS NULL").first(),
     db.prepare("SELECT coalesce(sum(quantity),0) AS n FROM inventory_bulk_stock").first(),
-    db.prepare("SELECT count(*) AS n FROM dispatch_serial_assignments").first(),
-    db.prepare("SELECT count(DISTINCT technician_id) AS n FROM dispatch_documents WHERE status='DESPACHADO'").first(),
-    db.prepare("SELECT coalesce(sum(quantity),0) AS n FROM dispatch_movements").first()
+    db.prepare("SELECT count(*) AS n FROM dispatch_serial_assignments a WHERE NOT EXISTS (SELECT 1 FROM consumption_items c WHERE c.internal_serial=a.serial COLLATE NOCASE)").first(),
+    db.prepare("SELECT count(DISTINCT m.technician_id) AS n FROM dispatch_movements m WHERE m.quantity>COALESCE((SELECT SUM(c.quantity) FROM consumption_items c WHERE c.dispatch_item_id=m.dispatch_item_id),0)").first(),
+    db.prepare("SELECT COALESCE(SUM(m.quantity-COALESCE((SELECT SUM(c.quantity) FROM consumption_items c WHERE c.dispatch_item_id=m.dispatch_item_id),0)),0) AS n FROM dispatch_movements m").first()
    ]);
    return json({ok:true,items:r.results||[],metrics:{
     available:Number(stocks?.n||0)+Number(bulk?.n||0),
@@ -2080,6 +2341,15 @@ export default {
         if(pathname.startsWith('/api/saldos-iniciales'))
           return await openingHandler(request,env,await currentUser(request,env),pathname);
         if(pathname==='/saldos-iniciales'||pathname==='/saldos-iniciales.html'){
+          if(request.method!=='GET'&&request.method!=='HEAD')return ingBad('METODO_NO_PERMITIDO',405);
+          const person=await currentUser(request,env);
+          if(!person)return go('/main');
+          if(person.role!=='ADMIN')return go('/inicio');
+          return securePage(await env.ASSETS.fetch(request));
+        }
+        if(pathname.startsWith('/api/consumos'))
+          return await consumptionHandler(request,env,await currentUser(request,env),pathname);
+        if(pathname==='/consumos'||pathname==='/consumos.html'){
           if(request.method!=='GET'&&request.method!=='HEAD')return ingBad('METODO_NO_PERMITIDO',405);
           const person=await currentUser(request,env);
           if(!person)return go('/main');

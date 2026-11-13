@@ -1,0 +1,54 @@
+/* PULSO · Consumos WFM: identidad visual de Despachos. */
+.consumption-shell{max-width:1660px}
+.consumption-screen[hidden],#con-preview[hidden],#con-success[hidden],#con-alert[hidden],#con-errors[hidden]{display:none!important}
+.con-section-title{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:23px 22px 15px}
+.con-section-title h2{font:800 22px 'Manrope',sans-serif;color:#124b3a;margin:4px 0 6px}
+.con-section-title p{font-size:12px;color:#608779;line-height:1.5}
+.con-assistant-card{min-height:260px}
+.con-assistant-card p{color:#648779;line-height:1.65;font-size:12px;margin-top:15px}
+.con-legend{display:flex;flex-direction:column;gap:17px;margin-top:17px}
+.con-legend span{color:#285949;font-size:11px;display:flex;align-items:center;gap:10px;font-weight:700}
+.con-legend b{display:grid;place-items:center;background:#daf5e6;border-radius:50%;width:26px;height:26px;color:#0b8260;font-size:12px}
+.con-stepbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border-radius:13px;padding:12px;background:#fff}
+.con-stepbar span{padding:14px 9px;background:#e8f7ed;border-radius:9px;text-align:center;color:#165b43;font-size:11px;font-weight:800}
+.con-upload-card{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;padding:26px}
+.con-upload-card>div{flex:1 1 330px}
+.con-upload-card h2,.con-preview h2,.con-success h2{color:#164938;font:800 22px 'Manrope',sans-serif;margin:5px 0 8px}
+.con-upload-card p{color:#698b7b;font-size:12px;line-height:1.65}
+.con-upload-card button{min-height:46px;min-width:220px}
+.con-upload-card small{width:100%;font-size:11px;color:#6b8a7d}
+.con-preview{padding:0 0 22px;min-width:0}
+.con-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:3px 20px 22px}
+.con-stats>div{padding:16px;background:#f6fbf8;border:1px solid #d7e9df;border-radius:11px;display:flex;flex-direction:column;gap:7px}
+.con-stats small{color:#648b79;font-size:11px;font-weight:700}
+.con-stats strong{font:800 25px 'Manrope',sans-serif;color:#124a38}
+.con-groups{max-height:625px;overflow:auto;padding:0 20px 6px;display:flex;flex-direction:column;gap:12px}
+.con-group{border:1px solid #d9e9df;border-radius:12px;overflow:hidden;background:#fff}
+.con-group summary{cursor:pointer;background:#f4faf6;padding:13px 16px;display:flex;justify-content:space-between;align-items:center;gap:13px;flex-wrap:wrap}
+.con-group summary strong{color:#18533d;font-size:12px}
+.con-group summary span{font-size:11px;color:#4d806a}
+.con-group .ingress-table-wrap{max-height:350px;overflow:auto}
+.con-group table{min-width:1050px}
+.con-group th{position:sticky;top:0;background:#f3f9f5!important}
+.con-group td,.con-detail-rows td{overflow-wrap:anywhere}
+.con-source-tag{font-size:10px;color:#13805b;display:block;font-weight:700;margin-top:4px}
+.con-errors{background:#fff0ec;border:1px solid #edccc6;color:#a33d33;border-radius:11px;padding:17px;margin:0 20px 18px;font-size:12px}
+.con-errors ul{margin:10px 0 0;padding-left:20px;line-height:1.8;max-height:290px;overflow:auto}
+.con-confirm-area{display:flex;justify-content:space-between;gap:17px;align-items:center;flex-wrap:wrap;border-top:1px solid #e1eee6;padding:20px;margin:0 0 -12px}
+.con-confirm-area label{flex:1 1 360px;display:flex;gap:9px;color:#2b604b;font-size:12px;font-weight:750;line-height:1.5}
+.con-confirm-area input{accent-color:#08845f;flex:none;margin-top:2px}
+.con-confirm-area button{min-height:46px;min-width:218px}
+.con-confirm-area button:disabled{opacity:.5;cursor:not-allowed}
+.con-success{display:flex;align-items:flex-start;gap:17px;padding:25px}
+.con-success p{font-size:12px;line-height:1.6;color:#567d67;margin:7px 0 16px}
+.con-success-icon{display:grid;place-items:center;flex:none;background:#d9f7e4;color:#07825e;width:60px;height:60px;border-radius:15px;font-size:34px;font-weight:900}
+.con-success button{margin-top:10px;min-height:44px}
+#consumption-detail .ingress-table-wrap{max-height:720px;overflow:auto;padding:0 20px 14px}
+#consumption-detail table{min-width:1050px}
+#con-alert{margin:0;padding:15px 20px}
+#con-alert.error{background:#ffebea;color:#9d352f}
+@media(max-width:1080px){.con-upload-card{align-items:flex-start}.con-section-title{padding:19px}}
+@media(max-width:760px){.con-stats{grid-template-columns:repeat(2,minmax(0,1fr));padding:0 14px 17px}
+.con-stepbar{gap:4px;padding:8px}.con-stepbar span{font-size:10px;padding:11px 4px}
+.con-confirm-area button{width:100%;min-width:0}.con-groups{padding:0 12px}.con-upload-card{padding:18px}}
+@media(max-width:440px){.con-stepbar span{font-size:9px}.con-section-title h2{font-size:19px}}
