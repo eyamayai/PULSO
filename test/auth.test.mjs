@@ -2113,7 +2113,8 @@ test('Consumos WFM: recupera serial genérico en Sheet1 aunque Claro lo dejó va
  assert.deepEqual([saved.reported_serial,saved.internal_serial,saved.ot,saved.quantity],
   ['','GEN-0001','OT5380432',1]);
  assert.equal(db.prepare("SELECT count(*) n FROM dispatch_serial_assignments").get().n,1);
- assert.equal(db.prepare("SELECT count(*) n FROM inventory_serials").get().n,1);
+ // EQ-001 del ingreso y GEN-0001 son dos seriales distintos en el inventario.
+ assert.equal(db.prepare("SELECT count(*) n FROM inventory_serials").get().n,2);
 });
 test('Consumos WFM: no admite otro técnico, bodega ni serial sin asignación',async()=>{
  const x=setup(),cookie=await adminCookie(x),f=dispatchFixtures(x);
